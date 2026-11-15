@@ -1,0 +1,26 @@
+[gd_scene format=3 uid="uid://cy0kkjtw1l5gb"]
+
+[ext_resource type="PackedScene" uid="uid://cssct0atfxtnp" path="res://scenes/board/chess_board.tscn" id="1_53q0u"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_7h7mn"]
+
+[sub_resource type="Sky" id="Sky_jc63w"]
+sky_material = SubResource("ProceduralSkyMaterial_7h7mn")
+
+[sub_resource type="Environment" id="Environment_p5viw"]
+background_mode = 2
+sky = SubResource("Sky_jc63w")
+
+[node name="Main" type="Node3D" unique_id=17699816]
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=707064591]
+transform = Transform3D(0.70710677, -0.579228, 0.4055798, 0, 0.57357645, 0.81915206, -0.70710677, -0.579228, 0.4055798, 0, 0, 0)
+shadow_enabled = true
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1161302801]
+environment = SubResource("Environment_p5viw")
+
+[node name="Camera3D" type="Camera3D" parent="." unique_id=2068823499]
+transform = Transform3D(1, 0, 0, 0, 0.70710677, 0.70710677, 0, -0.70710677, 0.70710677, 0, 7.5, 7.5)
+
+[node name="ChessBoard" parent="." unique_id=1526687798 instance=ExtResource("1_53q0u")]
