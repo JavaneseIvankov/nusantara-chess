@@ -2,83 +2,36 @@ class_name ChessPiece
 extends Node3D
 
 enum PieceType { PAWN, ROOK, KNIGHT, BISHOP, QUEEN, KING }
-enum Faction { GOLD, OBSIDIAN } # GOLD = Faksi Nusantara Terang, OBSIDIAN = Faksi Gelap
+enum Faction { GOLD, OBSIDIAN }
 
-var type: PieceType = PieceType.PAWN
-var faction: Faction = Faction.GOLD
+@export var type: PieceType = PieceType.PAWN
+@export var faction: Faction = Faction.GOLD
+@export var override_faction_material: bool = true
+
 var grid_pos: Vector2i = Vector2i.ZERO
 var has_moved: bool = false
+var visual_root: Node3D
 
-@onready var visual_mesh: MeshInstance3D = $VisualMesh
+const MODEL_PATHS := {
+	PieceType.PAWN: "res://assets/models/pieces/piece_pawn.glb",
+	PieceType.ROOK: "res://assets/models/pieces/piece_rook.glb",
+	PieceType.KNIGHT: "res://assets/models/pieces/piece_knight.glb",
+	PieceType.BISHOP: "res://assets/models/pieces/piece_bishop.glb",
+	PieceType.QUEEN: "res://assets/models/pieces/piece_queen.glb",
+	PieceType.KING: "res://assets/models/pieces/piece_king.glb"
+}
 
 func setup(p_type: PieceType, p_faction: Faction, start_grid: Vector2i, world_pos: Vector3) -> void:
 	type = p_type
 	faction = p_faction
 	grid_pos = start_grid
 	position = world_pos
-	
-	_build_placeholder_visual()
+	_build_visual()
 
-# Membuat bentuk 3D sementara berdasarkan jenis bidak (mudah diganti model .glb nanti)
-func _build_placeholder_visual() -> void:
-	var mat := StandardMaterial3D.new()
-	if faction == Faction.GOLD:
-		mat.albedo_color = Color(0.85, 0.65, 0.25) # Perunggu emas
-		mat.metallic = 0.65
-		mat.roughness = 0.35
-	else:
-		mat.albedo_color = Color(0.18, 0.20, 0.24) # Batu candi / besi obsidian
-		mat.metallic = 0.45
-		mat.roughness = 0.50
-	
-	var mesh: Mesh
-	var height: float = 0.6
-	
-	match type:
-		PieceType.PAWN:
-			var cap := CapsuleMesh.new()
-			cap.radius = 0.22
-			cap.height = 0.55
-			mesh = cap
-			height = 0.55
-		PieceType.ROOK:
-			var box := BoxMesh.new()
-			box.size = Vector3(0.48, 0.75, 0.48)
-			mesh = box
-			height = 0.75
-		PieceType.KNIGHT:
-			var prism := PrismMesh.new()
-			prism.size = Vector3(0.45, 0.80, 0.55)
-			mesh = prism
-			height = 0.80
-		PieceType.BISHOP:
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.08
-			cyl.bottom_radius = 0.26
-			cyl.height = 0.90
-			mesh = cyl
-			height = 0.90
-		PieceType.QUEEN:
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.20
-			cyl.bottom_radius = 0.30
-			cyl.height = 1.05
-			mesh = cyl
-			height = 1.05
-		PieceType.KING:
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.26
-			cyl.bottom_radius = 0.32
-			cyl.height = 1.20
-			mesh = cyl
-			height = 1.20
-	
-	visual_mesh.mesh = mesh
-	visual_mesh.material_override = mat
-	# Pastikan bagian dasar bidak tepat menempel di permukaan papan (Y = 0)
-	visual_mesh.position.y = height / 2.0
+func promote_to(new_type: PieceType) -> void:
+	type = new_type
+	_build_visual()
 
-# Animasi meluncur mulus saat bidak berpindah petak
 func move_to(new_grid_pos: Vector2i, target_world_pos: Vector3) -> void:
 	grid_pos = new_grid_pos
 	has_moved = true
@@ -87,11 +40,9 @@ func move_to(new_grid_pos: Vector2i, target_world_pos: Vector3) -> void:
 	var tween := create_tween()
 	tween.set_parallel(true)
 	
-	# Gerak horizontal (X dan Z) mulus
 	tween.tween_property(self, "position:x", target_world_pos.x, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(self, "position:z", target_world_pos.z, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	
-	# Khusus Kuda: melompat melengkung ke atas lalu mendarat!
 	if type == PieceType.KNIGHT:
 		var arc_tween := create_tween()
 		arc_tween.tween_property(self, "position:y", target_world_pos.y + 0.65, duration * 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
@@ -99,7 +50,147 @@ func move_to(new_grid_pos: Vector2i, target_world_pos: Vector3) -> void:
 	else:
 		tween.tween_property(self, "position:y", target_world_pos.y, duration)
 
-# Mengubah jenis dan bentuk 3D bidak saat Pion mencapai baris ujung (Promosi)
-func promote_to(new_type: PieceType) -> void:
-	type = new_type
-	_build_placeholder_visual()
+func _build_visual() -> void:
+	if visual_root != null:
+		visual_root.queue_free()
+	
+	visual_root = Node3D.new()
+	visual_root.name = "VisualRoot"
+	add_child(visual_root)
+	
+	# Arahkan bidak Obsidian menghadap ke selatan (+Z) menuju kubu Emas
+	if faction == Faction.OBSIDIAN:
+		visual_root.rotation.y = PI
+	
+	var mat := _create_faction_material()
+	var model_path: String = MODEL_PATHS.get(type, "")
+	
+	# Auto-Loader: Cek apakah aset .glb final dari tim Blender sudah tersedia
+	if model_path != "" and ResourceLoader.exists(model_path):
+		var packed_scene: PackedScene = load(model_path)
+		if packed_scene != null:
+			var model_instance := packed_scene.instantiate()
+			visual_root.add_child(model_instance)
+			if override_faction_material:
+				_apply_material_recursive(model_instance, mat)
+			return
+	
+	# Fallback Placeholder Geometris jika file .glb belum disetor
+	_build_placeholder_mesh(visual_root, mat)
+
+func _create_faction_material() -> StandardMaterial3D:
+	var mat := StandardMaterial3D.new()
+	if faction == Faction.GOLD:
+		mat.albedo_color = Color(0.88, 0.70, 0.25)
+		mat.metallic = 0.75
+		mat.roughness = 0.28
+	else:
+		mat.albedo_color = Color(0.14, 0.16, 0.22)
+		mat.metallic = 0.45
+		mat.roughness = 0.35
+	return mat
+
+func _apply_material_recursive(node: Node, mat: StandardMaterial3D) -> void:
+	if node is MeshInstance3D:
+		node.material_override = mat
+	for child in node.get_children():
+		_apply_material_recursive(child, mat)
+
+func _build_placeholder_mesh(parent: Node3D, mat: StandardMaterial3D) -> void:
+	var base := MeshInstance3D.new()
+	var base_cyl := CylinderMesh.new()
+	base_cyl.top_radius = 0.28
+	base_cyl.bottom_radius = 0.34
+	base_cyl.height = 0.14
+	base.mesh = base_cyl
+	base.material_override = mat
+	base.position.y = 0.07
+	parent.add_child(base)
+	
+	var body := MeshInstance3D.new()
+	var head := MeshInstance3D.new()
+	
+	match type:
+		PieceType.PAWN:
+			var cyl := CylinderMesh.new()
+			cyl.top_radius = 0.14
+			cyl.bottom_radius = 0.22
+			cyl.height = 0.45
+			body.mesh = cyl
+			body.position.y = 0.36
+			
+			var sph := SphereMesh.new()
+			sph.radius = 0.16
+			head.mesh = sph
+			head.position.y = 0.65
+			
+		PieceType.ROOK:
+			var cyl := CylinderMesh.new()
+			cyl.top_radius = 0.22
+			cyl.bottom_radius = 0.25
+			cyl.height = 0.65
+			body.mesh = cyl
+			body.position.y = 0.46
+			
+			var crown := CylinderMesh.new()
+			crown.top_radius = 0.26
+			crown.bottom_radius = 0.26
+			crown.height = 0.16
+			head.mesh = crown
+			head.position.y = 0.85
+			
+		PieceType.KNIGHT:
+			var box := BoxMesh.new()
+			box.size = Vector3(0.28, 0.62, 0.36)
+			body.mesh = box
+			body.position.y = 0.44
+			
+			var snout := BoxMesh.new()
+			snout.size = Vector3(0.22, 0.22, 0.42)
+			head.mesh = snout
+			head.position = Vector3(0, 0.78, -0.08)
+			
+		PieceType.BISHOP:
+			var cyl := CylinderMesh.new()
+			cyl.top_radius = 0.12
+			cyl.bottom_radius = 0.24
+			cyl.height = 0.75
+			body.mesh = cyl
+			body.position.y = 0.51
+			
+			var mitre := SphereMesh.new()
+			mitre.radius = 0.16
+			mitre.height = 0.38
+			head.mesh = mitre
+			head.position.y = 0.96
+			
+		PieceType.QUEEN:
+			var cyl := CylinderMesh.new()
+			cyl.top_radius = 0.15
+			cyl.bottom_radius = 0.26
+			cyl.height = 0.90
+			body.mesh = cyl
+			body.position.y = 0.59
+			
+			var orb := SphereMesh.new()
+			orb.radius = 0.18
+			head.mesh = orb
+			head.position.y = 1.12
+			
+		PieceType.KING:
+			var cyl := CylinderMesh.new()
+			cyl.top_radius = 0.18
+			cyl.bottom_radius = 0.28
+			cyl.height = 1.05
+			body.mesh = cyl
+			body.position.y = 0.66
+			
+			var cross := BoxMesh.new()
+			cross.size = Vector3(0.22, 0.24, 0.22)
+			head.mesh = cross
+			head.position.y = 1.28
+	
+	body.material_override = mat
+	head.material_override = mat
+	parent.add_child(body)
+	parent.add_child(head)
