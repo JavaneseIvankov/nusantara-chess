@@ -15,6 +15,8 @@ var target_yaw: float = 0.0
 var target_pitch: float = deg_to_rad(-45.0)
 var target_zoom: float = 10.5
 var is_rotating: bool = false
+var is_obsidian_side: bool = false
+var is_top_view: bool = false
 
 func _ready() -> void:
 	target_yaw = rotation.y
@@ -45,6 +47,21 @@ func _process(delta: float) -> void:
 	camera.position.z = lerp(camera.position.z, target_zoom, weight)
 
 func reset_camera() -> void:
+	is_obsidian_side = false
+	is_top_view = false
 	target_yaw = 0.0
 	target_pitch = deg_to_rad(-45.0)
 	target_zoom = 10.5
+
+func set_faction_side(faction: ChessPiece.Faction) -> void:
+	is_obsidian_side = (faction == ChessPiece.Faction.OBSIDIAN)
+	target_yaw = PI if is_obsidian_side else 0.0
+
+func toggle_top_view() -> void:
+	is_top_view = not is_top_view
+	if is_top_view:
+		target_pitch = deg_to_rad(-82.0)
+		target_zoom = 11.2
+	else:
+		target_pitch = deg_to_rad(-45.0)
+		target_zoom = 10.5

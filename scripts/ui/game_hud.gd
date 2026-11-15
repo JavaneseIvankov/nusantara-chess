@@ -2,8 +2,11 @@ class_name GameHUD
 extends Control
 
 signal camera_reset_requested
+signal auto_flip_toggled(enabled: bool)
+signal camera_top_view_requested
 signal restart_requested
 signal forfeit_requested
+
 
 var turn_label: Label
 var game_over_panel: PanelContainer
@@ -38,6 +41,8 @@ const PIECE_ICONS := {
 	ChessPiece.PieceType.QUEEN: "♛",
 	ChessPiece.PieceType.KING: "♚"
 }
+
+var auto_flip_enabled: bool = true
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -188,8 +193,20 @@ func _build_bottom_right_controls() -> void:
 	add_child(margin)
 	
 	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 10)
+	vbox.add_theme_constant_override("separation", 8)
 	margin.add_child(vbox)
+	
+	var btn_auto_flip := _make_styled_button("KAMERA AUTO: ON")
+	btn_auto_flip.pressed.connect(func():
+		auto_flip_enabled = not auto_flip_enabled
+		btn_auto_flip.text = "KAMERA AUTO: ON" if auto_flip_enabled else "KAMERA AUTO: OFF"
+		auto_flip_toggled.emit(auto_flip_enabled)
+	)
+	vbox.add_child(btn_auto_flip)
+	
+	var btn_top := _make_styled_button("SUDUT ATAS")
+	btn_top.pressed.connect(func(): camera_top_view_requested.emit())
+	vbox.add_child(btn_top)
 	
 	var btn_camera := _make_styled_button("KAMERA (RESET)")
 	btn_camera.pressed.connect(func(): camera_reset_requested.emit())
