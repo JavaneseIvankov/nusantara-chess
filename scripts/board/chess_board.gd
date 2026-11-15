@@ -2,6 +2,8 @@ extends Node3D
 
 signal turn_changed(new_faction: ChessPiece.Faction)
 signal check_state_changed(is_in_check: bool)
+signal piece_captured(capturer_faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType)
+signal move_recorded(faction: ChessPiece.Faction, notation: String)
 signal game_over(winner_faction: ChessPiece.Faction, reason: String)
 
 @export var tile_size: float = 1.0
@@ -232,7 +234,9 @@ func _clear_valid_move_markers() -> void:
 		child.queue_free()
 
 func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> void:
-	if captured_piece != null:
+	var was_capture: bool = captured_piece != null
+	if was_capture:
+		piece_captured.emit(current_turn, captured_piece.type)
 		captured_piece.queue_free()
 	
 	var origin_grid := selected_grid
@@ -240,7 +244,6 @@ func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> 
 	board_state.erase(origin_grid)
 	board_state[target_grid] = moving_piece
 	
-	# Sorot jejak petak asal & tujuan langkah terakhir
 	last_move_from_highlight.position = grid_to_world(origin_grid)
 	last_move_from_highlight.visible = true
 	last_move_to_highlight.position = grid_to_world(target_grid)
@@ -248,13 +251,36 @@ func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> 
 	
 	moving_piece.move_to(target_grid, grid_to_world(target_grid))
 	
+	var promoted: bool = false
 	if moving_piece.type == ChessPiece.PieceType.PAWN:
 		var promotion_row: int = 0 if moving_piece.faction == ChessPiece.Faction.GOLD else 7
 		if target_grid.y == promotion_row:
 			moving_piece.promote_to(ChessPiece.PieceType.QUEEN)
+			promoted = true
+	
+	var notation := _format_move_notation(moving_piece.type, origin_grid, target_grid, was_capture, promoted)
+	move_recorded.emit(current_turn, notation)
 	
 	_clear_selection()
 	_switch_turn()
+
+func _format_move_notation(p_type: ChessPiece.PieceType, from_pos: Vector2i, to_pos: Vector2i, is_capture: bool, promoted: bool) -> String:
+	var prefix := ""
+	match p_type:
+		ChessPiece.PieceType.KING: prefix = "♔"
+		ChessPiece.PieceType.QUEEN: prefix = "♕"
+		ChessPiece.PieceType.ROOK: prefix = "♖"
+		ChessPiece.PieceType.BISHOP: prefix = "♗"
+		ChessPiece.PieceType.KNIGHT: prefix = "♘"
+	
+	var sep := "×" if is_capture else "→"
+	var promo := "=♕" if promoted else ""
+	return "%s%s%s%s%s" % [prefix, _grid_to_algebraic(from_pos), sep, _grid_to_algebraic(to_pos), promo]
+
+func _grid_to_algebraic(pos: Vector2i) -> String:
+	var files := ["a", "b", "c", "d", "e", "f", "g", "h"]
+	var rank := 8 - pos.y
+	return "%s%d" % [files[pos.x], rank]
 
 func _switch_turn() -> void:
 	current_turn = ChessPiece.Faction.OBSIDIAN if current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
@@ -262,7 +288,6 @@ func _switch_turn() -> void:
 	
 	var in_check: bool = _is_king_in_check(current_turn, board_state)
 	
-	# Sorot petak di bawah Raja jika sedang terancam Skak
 	if in_check:
 		var king_grid := _find_king_pos(current_turn, board_state)
 		if king_grid != Vector2i(-1, -1):

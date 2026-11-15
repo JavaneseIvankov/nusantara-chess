@@ -7,6 +7,8 @@ extends Node3D
 func _ready() -> void:
 	chess_board.turn_changed.connect(_on_turn_changed)
 	chess_board.check_state_changed.connect(_on_check_state_changed)
+	chess_board.piece_captured.connect(_on_piece_captured)
+	chess_board.move_recorded.connect(_on_move_recorded)
 	chess_board.game_over.connect(_on_game_over)
 	
 	game_hud.camera_reset_requested.connect(_on_camera_reset)
@@ -18,6 +20,12 @@ func _on_turn_changed(new_faction: ChessPiece.Faction) -> void:
 
 func _on_check_state_changed(is_in_check: bool) -> void:
 	game_hud.set_check_warning(is_in_check)
+
+func _on_piece_captured(capturer_faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType) -> void:
+	game_hud.add_captured_piece(capturer_faction, captured_type)
+
+func _on_move_recorded(faction: ChessPiece.Faction, notation: String) -> void:
+	game_hud.add_move_record(faction, notation)
 
 func _on_game_over(winner_faction: ChessPiece.Faction, reason: String) -> void:
 	game_hud.show_winner(winner_faction, reason)
