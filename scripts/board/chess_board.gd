@@ -13,9 +13,10 @@ signal game_over(winner_faction: ChessPiece.Faction, reason: String)
 @export var dark_color: Color = Color(0.28, 0.16, 0.09)
 
 const PIECE_SCENE: PackedScene = preload("res://scenes/pieces/chess_piece.tscn")
+const BOARD_TILE_SHADER: Shader = preload("res://assets/shaders/board_tile.gdshader")
 
-var light_material: StandardMaterial3D
-var dark_material: StandardMaterial3D
+var light_material: ShaderMaterial
+var dark_material: ShaderMaterial
 var selection_highlight: Node3D
 var last_move_from_highlight: Node3D
 var last_move_to_highlight: Node3D
@@ -50,11 +51,23 @@ func _ready() -> void:
 	_spawn_initial_pieces()
 
 func _setup_materials() -> void:
-	light_material = StandardMaterial3D.new()
-	light_material.albedo_color = light_color
+	light_material = ShaderMaterial.new()
+	light_material.shader = BOARD_TILE_SHADER
+	light_material.set_shader_parameter("base_color", light_color)
+	light_material.set_shader_parameter("vein_color", Color(0.68, 0.56, 0.39))
+	light_material.set_shader_parameter("is_wood_grain", false)
+	light_material.set_shader_parameter("pattern_scale", 3.2)
+	light_material.set_shader_parameter("bump_strength", 0.85)
+	light_material.set_shader_parameter("base_roughness", 0.38)
 	
-	dark_material = StandardMaterial3D.new()
-	dark_material.albedo_color = dark_color
+	dark_material = ShaderMaterial.new()
+	dark_material.shader = BOARD_TILE_SHADER
+	dark_material.set_shader_parameter("base_color", dark_color)
+	dark_material.set_shader_parameter("vein_color", Color(0.14, 0.07, 0.03))
+	dark_material.set_shader_parameter("is_wood_grain", true)
+	dark_material.set_shader_parameter("pattern_scale", 4.5)
+	dark_material.set_shader_parameter("bump_strength", 1.25)
+	dark_material.set_shader_parameter("base_roughness", 0.48)
 
 func _generate_board() -> void:
 	var offset: float = (8.0 * tile_size) / 2.0 - (tile_size / 2.0)
@@ -71,7 +84,9 @@ func _generate_board() -> void:
 			mesh_instance.mesh = box_mesh
 			
 			var is_light: bool = (row + col) % 2 == 0
-			mesh_instance.material_override = light_material if is_light else dark_material
+			var tile_mat := (light_material if is_light else dark_material).duplicate() as ShaderMaterial
+			tile_mat.set_shader_parameter("tile_seed", float(row * 8 + col))
+			mesh_instance.material_override = tile_mat
 			
 			var collision_shape := CollisionShape3D.new()
 			var box_shape := BoxShape3D.new()
