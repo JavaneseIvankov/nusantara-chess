@@ -3,7 +3,7 @@ extends Node3D
 
 enum PieceType { PAWN, ROOK, KNIGHT, BISHOP, QUEEN, KING }
 enum Faction { GOLD, OBSIDIAN }
-enum HighlightState { NONE, SELECTED, CHECK }
+enum HighlightState { NONE, HOVERED, SELECTED, CHECK }
 
 @export var type: PieceType = PieceType.PAWN
 @export var faction: Faction = Faction.GOLD
@@ -11,8 +11,10 @@ enum HighlightState { NONE, SELECTED, CHECK }
 
 var grid_pos: Vector2i = Vector2i.ZERO
 var has_moved: bool = false
+var is_hovered: bool = false
 var visual_root: Node3D
 var overlay_material: ShaderMaterial
+var hover_tween: Tween
 
 const FRESNEL_SHADER: Shader = preload("res://assets/shaders/fresnel_rim_highlight.gdshader")
 
@@ -37,6 +39,18 @@ func _init_overlay_material() -> void:
 	overlay_material = ShaderMaterial.new()
 	overlay_material.shader = FRESNEL_SHADER
 
+func set_hovered(hovered: bool) -> void:
+	if is_hovered == hovered or visual_root == null:
+		return
+	is_hovered = hovered
+	
+	if hover_tween != null and hover_tween.is_valid():
+		hover_tween.kill()
+	
+	hover_tween = create_tween()
+	var target_y: float = 0.12 if is_hovered else 0.0
+	hover_tween.tween_property(visual_root, "position:y", target_y, 0.14).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+
 func set_highlight_state(state: HighlightState) -> void:
 	if visual_root == null or overlay_material == null:
 		return
@@ -44,6 +58,12 @@ func set_highlight_state(state: HighlightState) -> void:
 	match state:
 		HighlightState.NONE:
 			_apply_overlay_recursive(visual_root, null)
+		HighlightState.HOVERED:
+			overlay_material.set_shader_parameter("rim_color", Color(1.0, 0.88, 0.45, 0.72))
+			overlay_material.set_shader_parameter("fresnel_power", 3.2)
+			overlay_material.set_shader_parameter("intensity", 1.15)
+			overlay_material.set_shader_parameter("pulse_speed", 2.5)
+			_apply_overlay_recursive(visual_root, overlay_material)
 		HighlightState.SELECTED:
 			overlay_material.set_shader_parameter("rim_color", Color(1.0, 0.84, 0.28, 1.0))
 			overlay_material.set_shader_parameter("fresnel_power", 2.4)
@@ -70,6 +90,7 @@ func promote_to(new_type: PieceType) -> void:
 func move_to(new_grid_pos: Vector2i, target_world_pos: Vector3) -> void:
 	grid_pos = new_grid_pos
 	has_moved = true
+	set_hovered(false)
 	
 	var duration: float = 0.28
 	var tween := create_tween()
