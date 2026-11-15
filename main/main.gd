@@ -3,10 +3,18 @@ extends Node3D
 @onready var camera_rig: Node3D = $CameraRig
 @onready var chess_board: Node3D = $ChessBoard
 @onready var game_hud: GameHUD = $GameHUD
+@onready var main_menu: MainMenu = $MainMenu
 
 var auto_flip_camera: bool = true
 
 func _ready() -> void:
+	# Sembunyikan HUD permainan saat berada di Menu Utama
+	game_hud.visible = false
+	game_hud.modulate.a = 0.0
+	
+	main_menu.start_game_requested.connect(_on_start_game)
+	main_menu.quit_game_requested.connect(_on_quit_game)
+	
 	chess_board.turn_changed.connect(_on_turn_changed)
 	chess_board.check_state_changed.connect(_on_check_state_changed)
 	chess_board.piece_captured.connect(_on_piece_captured)
@@ -18,6 +26,18 @@ func _ready() -> void:
 	game_hud.camera_top_view_requested.connect(_on_camera_top_view)
 	game_hud.restart_requested.connect(_on_restart_game)
 	game_hud.forfeit_requested.connect(_on_forfeit_game)
+
+func _on_start_game() -> void:
+	chess_board.is_in_menu = false
+	if camera_rig.has_method("start_gameplay_camera"):
+		camera_rig.start_gameplay_camera()
+	
+	game_hud.visible = true
+	var hud_tween := create_tween()
+	hud_tween.tween_property(game_hud, "modulate:a", 1.0, 0.4)
+
+func _on_quit_game() -> void:
+	get_tree().quit()
 
 func _on_turn_changed(new_faction: ChessPiece.Faction) -> void:
 	game_hud.update_turn(new_faction)
