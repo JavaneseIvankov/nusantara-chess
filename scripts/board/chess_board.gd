@@ -22,6 +22,7 @@ var king_check_highlight: Node3D
 var valid_moves_container: Node3D
 
 var current_turn: ChessPiece.Faction = ChessPiece.Faction.GOLD
+var is_in_menu: bool = true
 var is_game_over: bool = false
 
 var selected_grid: Vector2i = Vector2i(-1, -1)
@@ -146,7 +147,7 @@ func _spawn_piece(p_type: ChessPiece.PieceType, p_faction: ChessPiece.Faction, g
 	board_state[grid_pos] = piece
 
 func _unhandled_input(event: InputEvent) -> void:
-	if is_game_over:
+	if is_game_over or is_in_menu:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_raycast_board(event.position)

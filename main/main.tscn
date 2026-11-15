@@ -5,6 +5,7 @@
 [ext_resource type="Script" uid="uid://cjaohubokj2kv" path="res://scripts/core/camera_rig.gd" id="1_pjrb6"]
 [ext_resource type="PackedScene" uid="uid://btgnvpabnejju" path="res://scenes/ui/game_hud.tscn" id="4_3wy1v"]
 [ext_resource type="Script" uid="uid://bpdhmjl1qbn77" path="res://scripts/environment/placeholder_environment.gd" id="5_3wy1v"]
+[ext_resource type="Script" uid="uid://mrkf4etqkqn2" path="res://scripts/ui/main_menu.gd" id="6_kfbq2"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_7h7mn"]
 sky_top_color = Color(0.019607844, 0.03529412, 0.078431375, 1)
@@ -71,3 +72,10 @@ omni_range = 9.0
 
 [node name="PlaceholderEnvironment" type="Node3D" parent="." unique_id=824262966]
 script = ExtResource("5_3wy1v")
+
+[node name="MainMenu" type="Control" parent="." unique_id=1971672098]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+script = ExtResource("6_kfbq2")
