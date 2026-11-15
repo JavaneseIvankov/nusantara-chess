@@ -7,10 +7,13 @@ extends Node3D
 
 var light_material: StandardMaterial3D
 var dark_material: StandardMaterial3D
+var selection_highlight: Node3D
+var selected_grid: Vector2i = Vector2i(-1, -1)
 
 func _ready() -> void:
 	_setup_materials()
 	_generate_board()
+	_create_highlight_frame()
 
 func _setup_materials() -> void:
 	light_material = StandardMaterial3D.new()
@@ -20,28 +23,22 @@ func _setup_materials() -> void:
 	dark_material.albedo_color = dark_color
 
 func _generate_board() -> void:
-	# Offset agar titik tengah papan berada tepat di koordinat (0, 0, 0)
 	var offset: float = (8.0 * tile_size) / 2.0 - (tile_size / 2.0)
 	
 	for row in range(8):
 		for col in range(8):
 			var tile_body := StaticBody3D.new()
 			tile_body.name = "Tile_%d_%d" % [row, col]
-			
-			# Simpan koordinat grid (x, z) ke dalam metadata node agar mudah dibaca saat diklik
 			tile_body.set_meta("grid_pos", Vector2i(col, row))
 			
-			# Mesh visual kotak
 			var mesh_instance := MeshInstance3D.new()
 			var box_mesh := BoxMesh.new()
 			box_mesh.size = Vector3(tile_size, tile_height, tile_size)
 			mesh_instance.mesh = box_mesh
 			
-			# Selang-seling warna terang dan gelap
 			var is_light: bool = (row + col) % 2 == 0
 			mesh_instance.material_override = light_material if is_light else dark_material
 			
-			# Collider untuk deteksi klik mouse (Raycasting)
 			var collision_shape := CollisionShape3D.new()
 			var box_shape := BoxShape3D.new()
 			box_shape.size = Vector3(tile_size, tile_height, tile_size)
@@ -50,14 +47,81 @@ func _generate_board() -> void:
 			tile_body.add_child(mesh_instance)
 			tile_body.add_child(collision_shape)
 			
-			# Posisikan petak sehingga permukaan atasnya rata di Y = 0
 			var pos_x: float = (col * tile_size) - offset
 			var pos_z: float = (row * tile_size) - offset
 			tile_body.position = Vector3(pos_x, -tile_height / 2.0, pos_z)
 			
 			add_child(tile_body)
 
-# Fungsi helper untuk mendapatkan posisi dunia (3D) dari koordinat grid (0..7, 0..7)
+# Membuat bingkai kotak bercahaya emas untuk menandai petak terpilih
+func _create_highlight_frame() -> void:
+	selection_highlight = Node3D.new()
+	selection_highlight.name = "SelectionHighlight"
+	selection_highlight.visible = false
+	
+	var glow_mat := StandardMaterial3D.new()
+	glow_mat.albedo_color = Color(1.0, 0.85, 0.3)
+	glow_mat.emission_enabled = true
+	glow_mat.emission = Color(1.0, 0.78, 0.2)
+	glow_mat.emission_energy_multiplier = 2.5 # Memicu efek Glow di WorldEnvironment
+	
+	var thickness: float = 0.05
+	var height: float = 0.015
+	var edge_len: float = tile_size * 0.94
+	var half_span: float = (edge_len - thickness) / 2.0
+	
+	# 4 sisi bingkai (Utara, Selatan, Barat, Timur)
+	var borders := [
+		{"size": Vector3(edge_len, height, thickness), "pos": Vector3(0, height / 2.0, -half_span)},
+		{"size": Vector3(edge_len, height, thickness), "pos": Vector3(0, height / 2.0, half_span)},
+		{"size": Vector3(thickness, height, edge_len), "pos": Vector3(-half_span, height / 2.0, 0)},
+		{"size": Vector3(thickness, height, edge_len), "pos": Vector3(half_span, height / 2.0, 0)}
+	]
+	
+	for b in borders:
+		var bar := MeshInstance3D.new()
+		var mesh := BoxMesh.new()
+		mesh.size = b["size"]
+		bar.mesh = mesh
+		bar.material_override = glow_mat
+		bar.position = b["pos"]
+		selection_highlight.add_child(bar)
+	
+	add_child(selection_highlight)
+
+# Deteksi klik kiri mouse pada papan 3D
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		_raycast_board(event.position)
+
+func _raycast_board(mouse_pos: Vector2) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if not camera:
+		return
+	
+	var ray_origin := camera.project_ray_origin(mouse_pos)
+	var ray_end := ray_origin + camera.project_ray_normal(mouse_pos) * 100.0
+	
+	var space_state := get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
+	var result := space_state.intersect_ray(query)
+	
+	if result and result.collider.has_meta("grid_pos"):
+		var grid_pos: Vector2i = result.collider.get_meta("grid_pos")
+		_select_tile(grid_pos)
+
+func _select_tile(grid_pos: Vector2i) -> void:
+	if selected_grid == grid_pos:
+		# Klik petak yang sama untuk membatalkan seleksi
+		selected_grid = Vector2i(-1, -1)
+		selection_highlight.visible = false
+		return
+	
+	selected_grid = grid_pos
+	selection_highlight.position = grid_to_world(grid_pos)
+	selection_highlight.visible = true
+	print("Petak terpilih: ", grid_pos)
+
 func grid_to_world(grid_pos: Vector2i) -> Vector3:
 	var offset: float = (8.0 * tile_size) / 2.0 - (tile_size / 2.0)
 	var pos_x: float = (grid_pos.x * tile_size) - offset
