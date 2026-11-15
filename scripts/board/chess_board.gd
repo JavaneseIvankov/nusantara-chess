@@ -1,7 +1,8 @@
 extends Node3D
 
 signal turn_changed(new_faction: ChessPiece.Faction)
-signal game_over(winner_faction: ChessPiece.Faction)
+signal check_state_changed(is_in_check: bool)
+signal game_over(winner_faction: ChessPiece.Faction, reason: String)
 
 @export var tile_size: float = 1.0
 @export var tile_height: float = 0.2
@@ -29,7 +30,6 @@ func _ready() -> void:
 	_create_highlight_frame()
 	_create_valid_moves_container()
 	_spawn_initial_pieces()
-	print("=== GILIRAN: FAKSI EMAS (GOLD) ===")
 
 func _setup_materials() -> void:
 	light_material = StandardMaterial3D.new()
@@ -158,30 +158,21 @@ func _raycast_board(mouse_pos: Vector2) -> void:
 func _handle_tile_click(clicked_grid: Vector2i) -> void:
 	var clicked_piece: ChessPiece = board_state.get(clicked_grid, null)
 	
-	# Jika sudah ada bidak terpilih
 	if selected_piece != null:
 		if clicked_grid == selected_grid:
 			_clear_selection()
 			return
 		
-		# Ganti pilihan jika mengklik bidak lain milik faksi yang sedang mendapat giliran
 		if clicked_piece != null and clicked_piece.faction == current_turn:
 			_select_piece(clicked_grid, clicked_piece)
 			return
 		
-		# Cek apakah petak tujuan termasuk dalam daftar langkah sah
 		if clicked_grid in valid_moves:
 			_move_selected_piece(clicked_grid, clicked_piece)
-		else:
-			print("Langkah tidak sah untuk bidak ini!")
 		return
 	
-	# Hanya boleh memilih bidak milik faksi yang sedang mendapat giliran
-	if clicked_piece != null:
-		if clicked_piece.faction == current_turn:
-			_select_piece(clicked_grid, clicked_piece)
-		else:
-			print("Bukan giliran faksi ini!")
+	if clicked_piece != null and clicked_piece.faction == current_turn:
+		_select_piece(clicked_grid, clicked_piece)
 
 func _select_piece(grid_pos: Vector2i, piece: ChessPiece) -> void:
 	selected_grid = grid_pos
@@ -189,7 +180,7 @@ func _select_piece(grid_pos: Vector2i, piece: ChessPiece) -> void:
 	selection_highlight.position = grid_to_world(grid_pos)
 	selection_highlight.visible = true
 	
-	valid_moves = _get_valid_moves(piece)
+	valid_moves = _get_legal_moves(piece)
 	_render_valid_move_markers()
 
 func _clear_selection() -> void:
@@ -214,10 +205,10 @@ func _render_valid_move_markers() -> void:
 		var mat := StandardMaterial3D.new()
 		var is_capture: bool = board_state.has(move_pos)
 		if is_capture:
-			mat.albedo_color = Color(1.0, 0.25, 0.2) # Merah menyala jika memakan lawan
+			mat.albedo_color = Color(1.0, 0.25, 0.2)
 			mat.emission = Color(1.0, 0.2, 0.15)
 		else:
-			mat.albedo_color = Color(1.0, 0.85, 0.35) # Emas lembut untuk petak kosong
+			mat.albedo_color = Color(1.0, 0.85, 0.35)
 			mat.emission = Color(1.0, 0.78, 0.25)
 		
 		mat.emission_enabled = true
@@ -231,78 +222,132 @@ func _clear_valid_move_markers() -> void:
 		child.queue_free()
 
 func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> void:
-	var king_captured: bool = false
-	
 	if captured_piece != null:
-		if captured_piece.type == ChessPiece.PieceType.KING:
-			king_captured = true
 		captured_piece.queue_free()
 	
+	var moving_piece := selected_piece
 	board_state.erase(selected_grid)
-	board_state[target_grid] = selected_piece
+	board_state[target_grid] = moving_piece
 	
-	selected_piece.move_to(target_grid, grid_to_world(target_grid))
+	moving_piece.move_to(target_grid, grid_to_world(target_grid))
+	
+	# Cek Promosi Pion saat mencapai baris paling ujung lawan
+	if moving_piece.type == ChessPiece.PieceType.PAWN:
+		var promotion_row: int = 0 if moving_piece.faction == ChessPiece.Faction.GOLD else 7
+		if target_grid.y == promotion_row:
+			moving_piece.promote_to(ChessPiece.PieceType.QUEEN)
+	
 	_clear_selection()
-	
-	if king_captured:
-		is_game_over = true
-		var winner_name := "FAKSI EMAS (GOLD)" if current_turn == ChessPiece.Faction.GOLD else "FAKSI OBSIDIAN"
-		print("=== PERTANDINGAN SELESAI! PEMENANG: ", winner_name, " ===")
-		game_over.emit(current_turn)
-		return
-	
 	_switch_turn()
 
 func _switch_turn() -> void:
-	if current_turn == ChessPiece.Faction.GOLD:
-		current_turn = ChessPiece.Faction.OBSIDIAN
-		print("=== GILIRAN: FAKSI OBSIDIAN ===")
-	else:
-		current_turn = ChessPiece.Faction.GOLD
-		print("=== GILIRAN: FAKSI EMAS (GOLD) ===")
+	current_turn = ChessPiece.Faction.OBSIDIAN if current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
 	turn_changed.emit(current_turn)
+	
+	var in_check: bool = _is_king_in_check(current_turn, board_state)
+	var has_any_legal_move: bool = _faction_has_legal_moves(current_turn)
+	
+	if not has_any_legal_move:
+		is_game_over = true
+		var winner := ChessPiece.Faction.OBSIDIAN if current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
+		if in_check:
+			game_over.emit(winner, "SKAKMAT!")
+		else:
+			game_over.emit(winner, "SERI (STALEMATE)!")
+		return
+	
+	check_state_changed.emit(in_check)
 
 # ==============================================================================
-# LOGIKA ATURAN GERAK BIDAK CATUR
+# LOGIKA VALIDASI SKAK (CHECK) & SKAKMAT (CHECKMATE)
 # ==============================================================================
-func _get_valid_moves(piece: ChessPiece) -> Array[Vector2i]:
+func _get_legal_moves(piece: ChessPiece) -> Array[Vector2i]:
+	var pseudo_moves := _get_pseudo_legal_moves(piece, piece.grid_pos, board_state)
+	var legal_moves: Array[Vector2i] = []
+	
+	for target_pos in pseudo_moves:
+		if _is_move_safe_for_king(piece, target_pos):
+			legal_moves.append(target_pos)
+	
+	return legal_moves
+
+func _is_move_safe_for_king(piece: ChessPiece, target_pos: Vector2i) -> bool:
+	var sim_state := board_state.duplicate()
+	sim_state.erase(piece.grid_pos)
+	sim_state[target_pos] = piece
+	
+	return not _is_king_in_check(piece.faction, sim_state, piece, target_pos)
+
+func _is_king_in_check(faction: ChessPiece.Faction, state: Dictionary, moved_piece: ChessPiece = null, moved_pos: Vector2i = Vector2i(-1, -1)) -> bool:
+	var king_pos: Vector2i = Vector2i(-1, -1)
+	
+	for pos in state.keys():
+		var p: ChessPiece = state[pos]
+		if p.faction == faction and p.type == ChessPiece.PieceType.KING:
+			king_pos = pos
+			break
+	
+	if king_pos == Vector2i(-1, -1):
+		return false
+	
+	for pos in state.keys():
+		var enemy: ChessPiece = state[pos]
+		if enemy.faction != faction:
+			var effective_pos: Vector2i = moved_pos if enemy == moved_piece else pos
+			var attacks := _get_pseudo_legal_moves(enemy, effective_pos, state)
+			if king_pos in attacks:
+				return true
+	
+	return false
+
+func _faction_has_legal_moves(faction: ChessPiece.Faction) -> bool:
+	var pieces: Array[ChessPiece] = []
+	for p in board_state.values():
+		if p.faction == faction:
+			pieces.append(p)
+	
+	for p in pieces:
+		if _get_legal_moves(p).size() > 0:
+			return true
+	return false
+
+# ==============================================================================
+# POLA GERAK DASAR BIDAK (PSEUDO-LEGAL)
+# ==============================================================================
+func _get_pseudo_legal_moves(piece: ChessPiece, pos: Vector2i, state: Dictionary) -> Array[Vector2i]:
 	var moves: Array[Vector2i] = []
-	var pos := piece.grid_pos
 	
 	match piece.type:
 		ChessPiece.PieceType.PAWN:
 			var dir: int = -1 if piece.faction == ChessPiece.Faction.GOLD else 1
 			var start_row: int = 6 if piece.faction == ChessPiece.Faction.GOLD else 1
 			
-			# Maju 1 langkah
 			var one_step := Vector2i(pos.x, pos.y + dir)
-			if _is_inside_board(one_step) and not board_state.has(one_step):
+			if _is_inside_board(one_step) and not state.has(one_step):
 				moves.append(one_step)
-				# Maju 2 langkah dari baris awal
 				var two_step := Vector2i(pos.x, pos.y + (dir * 2))
-				if pos.y == start_row and not board_state.has(two_step):
+				if pos.y == start_row and not state.has(two_step):
 					moves.append(two_step)
 			
-			# Makan serong kiri & kanan
 			for dx in [-1, 1]:
 				var diag := Vector2i(pos.x + dx, pos.y + dir)
-				if _is_inside_board(diag) and board_state.has(diag):
-					var target: ChessPiece = board_state[diag]
+				if _is_inside_board(diag) and state.has(diag):
+					var target: ChessPiece = state[diag]
 					if target.faction != piece.faction:
 						moves.append(diag)
 		
 		ChessPiece.PieceType.ROOK:
-			moves.append_array(_get_sliding_moves(piece, [
+			moves.append_array(_get_sliding_moves(piece, pos, state, [
 				Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)
 			]))
 		
 		ChessPiece.PieceType.BISHOP:
-			moves.append_array(_get_sliding_moves(piece, [
+			moves.append_array(_get_sliding_moves(piece, pos, state, [
 				Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)
 			]))
 		
 		ChessPiece.PieceType.QUEEN:
-			moves.append_array(_get_sliding_moves(piece, [
+			moves.append_array(_get_sliding_moves(piece, pos, state, [
 				Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
 				Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)
 			]))
@@ -314,7 +359,7 @@ func _get_valid_moves(piece: ChessPiece) -> Array[Vector2i]:
 			]
 			for j in jumps:
 				var target_pos: Vector2i = pos + j
-				if _can_land_on(piece, target_pos):
+				if _can_land_on(piece, target_pos, state):
 					moves.append(target_pos)
 		
 		ChessPiece.PieceType.KING:
@@ -322,33 +367,33 @@ func _get_valid_moves(piece: ChessPiece) -> Array[Vector2i]:
 				for dy in [-1, 0, 1]:
 					if dx == 0 and dy == 0:
 						continue
-					var target_pos := pos + Vector2i(dx, dy)
-					if _can_land_on(piece, target_pos):
+					var target_pos: Vector2i = pos + Vector2i(dx, dy)
+					if _can_land_on(piece, target_pos, state):
 						moves.append(target_pos)
 	
 	return moves
 
-func _get_sliding_moves(piece: ChessPiece, directions: Array[Vector2i]) -> Array[Vector2i]:
+func _get_sliding_moves(piece: ChessPiece, start_pos: Vector2i, state: Dictionary, directions: Array[Vector2i]) -> Array[Vector2i]:
 	var moves: Array[Vector2i] = []
 	for dir in directions:
-		var current := piece.grid_pos + dir
+		var current: Vector2i = start_pos + dir
 		while _is_inside_board(current):
-			if not board_state.has(current):
+			if not state.has(current):
 				moves.append(current)
 			else:
-				var occupant: ChessPiece = board_state[current]
+				var occupant: ChessPiece = state[current]
 				if occupant.faction != piece.faction:
 					moves.append(current)
 				break
 			current += dir
 	return moves
 
-func _can_land_on(piece: ChessPiece, target_pos: Vector2i) -> bool:
+func _can_land_on(piece: ChessPiece, target_pos: Vector2i, state: Dictionary) -> bool:
 	if not _is_inside_board(target_pos):
 		return false
-	if not board_state.has(target_pos):
+	if not state.has(target_pos):
 		return true
-	var occupant: ChessPiece = board_state[target_pos]
+	var occupant: ChessPiece = state[target_pos]
 	return occupant.faction != piece.faction
 
 func _is_inside_board(pos: Vector2i) -> bool:

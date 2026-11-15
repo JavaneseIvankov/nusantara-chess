@@ -82,3 +82,8 @@ func move_to(target_grid: Vector2i, target_world_pos: Vector3) -> void:
 	grid_pos = target_grid
 	var tween := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tween.tween_property(self, "position", target_world_pos, 0.32)
+
+# Mengubah jenis dan bentuk 3D bidak saat Pion mencapai baris ujung (Promosi)
+func promote_to(new_type: PieceType) -> void:
+	type = new_type
+	_build_placeholder_visual()

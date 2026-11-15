@@ -147,9 +147,14 @@ func update_turn(faction: ChessPiece.Faction) -> void:
 		turn_label.text = "GILIRAN: FAKSI OBSIDIAN"
 		turn_label.add_theme_color_override("font_color", Color(0.72, 0.82, 0.96))
 
-func show_winner(winner_faction: ChessPiece.Faction) -> void:
+func set_check_warning(is_in_check: bool) -> void:
+	if is_in_check:
+		turn_label.text += "  [⚠ RAJA TERANCAM SKAK!]"
+		turn_label.add_theme_color_override("font_color", Color(1.0, 0.32, 0.25))
+
+func show_winner(winner_faction: ChessPiece.Faction, reason: String = "SKAKMAT!") -> void:
 	if winner_faction == ChessPiece.Faction.GOLD:
-		winner_label.text = "PEMENANG: FAKSI EMAS"
+		winner_label.text = "%s\nPEMENANG: FAKSI EMAS" % reason
 	else:
-		winner_label.text = "PEMENANG: FAKSI OBSIDIAN"
+		winner_label.text = "%s\nPEMENANG: FAKSI OBSIDIAN" % reason
 	game_over_panel.visible = true
