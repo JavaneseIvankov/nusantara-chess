@@ -78,10 +78,24 @@ func _build_placeholder_visual() -> void:
 	visual_mesh.position.y = height / 2.0
 
 # Animasi meluncur mulus saat bidak berpindah petak
-func move_to(target_grid: Vector2i, target_world_pos: Vector3) -> void:
-	grid_pos = target_grid
-	var tween := create_tween().set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tween.tween_property(self, "position", target_world_pos, 0.32)
+func move_to(new_grid_pos: Vector2i, target_world_pos: Vector3) -> void:
+	grid_pos = new_grid_pos
+	
+	var duration: float = 0.28
+	var tween := create_tween()
+	tween.set_parallel(true)
+	
+	# Gerak horizontal (X dan Z) mulus
+	tween.tween_property(self, "position:x", target_world_pos.x, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tween.tween_property(self, "position:z", target_world_pos.z, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	
+	# Khusus Kuda: melompat melengkung ke atas lalu mendarat!
+	if type == PieceType.KNIGHT:
+		var arc_tween := create_tween()
+		arc_tween.tween_property(self, "position:y", target_world_pos.y + 0.65, duration * 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+		arc_tween.tween_property(self, "position:y", target_world_pos.y, duration * 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	else:
+		tween.tween_property(self, "position:y", target_world_pos.y, duration)
 
 # Mengubah jenis dan bentuk 3D bidak saat Pion mencapai baris ujung (Promosi)
 func promote_to(new_type: PieceType) -> void:

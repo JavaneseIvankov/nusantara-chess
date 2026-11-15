@@ -86,7 +86,7 @@ func _build_board_frame() -> void:
 		mesh_inst.position = g_data["pos"]
 		frame_root.add_child(mesh_inst)
 
-# 3. Empat Tiang Obor Batu di Sudut Papan (Tinggi 2.2m sejajar TorchLight_1..4)
+# 3. Empat Tiang Obor Batu di Sudut Papan + Partikel Percikan Api
 func _build_torch_pillars() -> void:
 	var pillars_root := Node3D.new()
 	pillars_root.name = "TorchPillars"
@@ -100,7 +100,21 @@ func _build_torch_pillars() -> void:
 	ember_mat.albedo_color = Color(1.0, 0.55, 0.1)
 	ember_mat.emission_enabled = true
 	ember_mat.emission = Color(1.0, 0.45, 0.05)
-	ember_mat.emission_energy_multiplier = 3.5 # Bara api menyala (Glow)
+	ember_mat.emission_energy_multiplier = 3.5
+	
+	var particle_mat := ParticleProcessMaterial.new()
+	particle_mat.direction = Vector3(0, 1, 0)
+	particle_mat.spread = 22.0
+	particle_mat.initial_velocity_min = 0.5
+	particle_mat.initial_velocity_max = 1.2
+	particle_mat.gravity = Vector3(0, 0.3, 0)
+	particle_mat.scale_min = 0.03
+	particle_mat.scale_max = 0.07
+	
+	var spark_mesh := SphereMesh.new()
+	spark_mesh.radius = 0.5
+	spark_mesh.height = 1.0
+	spark_mesh.material = ember_mat
 	
 	var corners := [
 		Vector3(-4.8, -0.2, -4.8),
@@ -114,7 +128,6 @@ func _build_torch_pillars() -> void:
 		torch_node.position = pos
 		pillars_root.add_child(torch_node)
 		
-		# Tiang batu (tinggi 2.2m dari dasar lantai Y = -0.2 sampai puncak Y = 2.0)
 		var column := MeshInstance3D.new()
 		var cyl := CylinderMesh.new()
 		cyl.top_radius = 0.16
@@ -125,7 +138,6 @@ func _build_torch_pillars() -> void:
 		column.position.y = 1.1
 		torch_node.add_child(column)
 		
-		# Mangkuk bara api di puncak tiang
 		var ember := MeshInstance3D.new()
 		var sphere := SphereMesh.new()
 		sphere.radius = 0.18
@@ -134,3 +146,11 @@ func _build_torch_pillars() -> void:
 		ember.material_override = ember_mat
 		ember.position.y = 2.25
 		torch_node.add_child(ember)
+		
+		var sparks := GPUParticles3D.new()
+		sparks.amount = 18
+		sparks.lifetime = 1.4
+		sparks.process_material = particle_mat
+		sparks.draw_pass_1 = spark_mesh
+		sparks.position.y = 2.3
+		torch_node.add_child(sparks)
