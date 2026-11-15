@@ -1,5 +1,8 @@
 extends Node3D
 
+signal turn_changed(new_faction: ChessPiece.Faction)
+signal game_over(winner_faction: ChessPiece.Faction)
+
 @export var tile_size: float = 1.0
 @export var tile_height: float = 0.2
 @export var light_color: Color = Color(0.87, 0.77, 0.60)
@@ -10,16 +13,23 @@ const PIECE_SCENE: PackedScene = preload("res://scenes/pieces/chess_piece.tscn")
 var light_material: StandardMaterial3D
 var dark_material: StandardMaterial3D
 var selection_highlight: Node3D
+var valid_moves_container: Node3D
+
+var current_turn: ChessPiece.Faction = ChessPiece.Faction.GOLD
+var is_game_over: bool = false
 
 var selected_grid: Vector2i = Vector2i(-1, -1)
 var selected_piece: ChessPiece = null
-var board_state: Dictionary = {} # Menyimpan pemetaan Vector2i -> ChessPiece
+var valid_moves: Array[Vector2i] = []
+var board_state: Dictionary = {} # Vector2i -> ChessPiece
 
 func _ready() -> void:
 	_setup_materials()
 	_generate_board()
 	_create_highlight_frame()
+	_create_valid_moves_container()
 	_spawn_initial_pieces()
+	print("=== GILIRAN: FAKSI EMAS (GOLD) ===")
 
 func _setup_materials() -> void:
 	light_material = StandardMaterial3D.new()
@@ -93,6 +103,11 @@ func _create_highlight_frame() -> void:
 	
 	add_child(selection_highlight)
 
+func _create_valid_moves_container() -> void:
+	valid_moves_container = Node3D.new()
+	valid_moves_container.name = "ValidMovesContainer"
+	add_child(valid_moves_container)
+
 func _spawn_initial_pieces() -> void:
 	var back_rank := [
 		ChessPiece.PieceType.ROOK,
@@ -106,11 +121,9 @@ func _spawn_initial_pieces() -> void:
 	]
 	
 	for col in range(8):
-		# Faksi Gelap (Obsidian) di baris atas (row 0 & 1)
 		_spawn_piece(back_rank[col], ChessPiece.Faction.OBSIDIAN, Vector2i(col, 0))
 		_spawn_piece(ChessPiece.PieceType.PAWN, ChessPiece.Faction.OBSIDIAN, Vector2i(col, 1))
 		
-		# Faksi Terang (Emas Nusantara) di baris bawah (row 6 & 7)
 		_spawn_piece(ChessPiece.PieceType.PAWN, ChessPiece.Faction.GOLD, Vector2i(col, 6))
 		_spawn_piece(back_rank[col], ChessPiece.Faction.GOLD, Vector2i(col, 7))
 
@@ -121,6 +134,8 @@ func _spawn_piece(p_type: ChessPiece.PieceType, p_faction: ChessPiece.Faction, g
 	board_state[grid_pos] = piece
 
 func _unhandled_input(event: InputEvent) -> void:
+	if is_game_over:
+		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_raycast_board(event.position)
 
@@ -143,49 +158,201 @@ func _raycast_board(mouse_pos: Vector2) -> void:
 func _handle_tile_click(clicked_grid: Vector2i) -> void:
 	var clicked_piece: ChessPiece = board_state.get(clicked_grid, null)
 	
-	# Kasus 1: Sudah ada bidak terpilih sebelumnya
+	# Jika sudah ada bidak terpilih
 	if selected_piece != null:
-		# Jika klik petak yang sama -> batalkan pilihan
 		if clicked_grid == selected_grid:
 			_clear_selection()
 			return
 		
-		# Jika klik bidak lain milik faksi yang sama -> ganti pilihan ke bidak itu
-		if clicked_piece != null and clicked_piece.faction == selected_piece.faction:
+		# Ganti pilihan jika mengklik bidak lain milik faksi yang sedang mendapat giliran
+		if clicked_piece != null and clicked_piece.faction == current_turn:
 			_select_piece(clicked_grid, clicked_piece)
 			return
 		
-		# Jika klik petak kosong atau bidak lawan -> pindahkan bidak terpilih ke sana!
-		_move_selected_piece(clicked_grid, clicked_piece)
+		# Cek apakah petak tujuan termasuk dalam daftar langkah sah
+		if clicked_grid in valid_moves:
+			_move_selected_piece(clicked_grid, clicked_piece)
+		else:
+			print("Langkah tidak sah untuk bidak ini!")
 		return
 	
-	# Kasus 2: Belum ada bidak terpilih, dan petak yang diklik ada bidaknya
+	# Hanya boleh memilih bidak milik faksi yang sedang mendapat giliran
 	if clicked_piece != null:
-		_select_piece(clicked_grid, clicked_piece)
+		if clicked_piece.faction == current_turn:
+			_select_piece(clicked_grid, clicked_piece)
+		else:
+			print("Bukan giliran faksi ini!")
 
 func _select_piece(grid_pos: Vector2i, piece: ChessPiece) -> void:
 	selected_grid = grid_pos
 	selected_piece = piece
 	selection_highlight.position = grid_to_world(grid_pos)
 	selection_highlight.visible = true
+	
+	valid_moves = _get_valid_moves(piece)
+	_render_valid_move_markers()
 
 func _clear_selection() -> void:
 	selected_grid = Vector2i(-1, -1)
 	selected_piece = null
+	valid_moves.clear()
 	selection_highlight.visible = false
+	_clear_valid_move_markers()
+
+func _render_valid_move_markers() -> void:
+	_clear_valid_move_markers()
+	
+	for move_pos in valid_moves:
+		var marker := MeshInstance3D.new()
+		var torus := TorusMesh.new()
+		torus.inner_radius = 0.22
+		torus.outer_radius = 0.30
+		marker.mesh = torus
+		marker.scale = Vector3(1.0, 0.25, 1.0)
+		marker.position = grid_to_world(move_pos) + Vector3(0, 0.015, 0)
+		
+		var mat := StandardMaterial3D.new()
+		var is_capture: bool = board_state.has(move_pos)
+		if is_capture:
+			mat.albedo_color = Color(1.0, 0.25, 0.2) # Merah menyala jika memakan lawan
+			mat.emission = Color(1.0, 0.2, 0.15)
+		else:
+			mat.albedo_color = Color(1.0, 0.85, 0.35) # Emas lembut untuk petak kosong
+			mat.emission = Color(1.0, 0.78, 0.25)
+		
+		mat.emission_enabled = true
+		mat.emission_energy_multiplier = 2.0
+		marker.material_override = mat
+		
+		valid_moves_container.add_child(marker)
+
+func _clear_valid_move_markers() -> void:
+	for child in valid_moves_container.get_children():
+		child.queue_free()
 
 func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> void:
-	# Hapus bidak lawan jika ada di petak tujuan
+	var king_captured: bool = false
+	
 	if captured_piece != null:
+		if captured_piece.type == ChessPiece.PieceType.KING:
+			king_captured = true
 		captured_piece.queue_free()
 	
-	# Perbarui data grid
 	board_state.erase(selected_grid)
 	board_state[target_grid] = selected_piece
 	
-	# Jalankan animasi meluncur ke petak tujuan
 	selected_piece.move_to(target_grid, grid_to_world(target_grid))
 	_clear_selection()
+	
+	if king_captured:
+		is_game_over = true
+		var winner_name := "FAKSI EMAS (GOLD)" if current_turn == ChessPiece.Faction.GOLD else "FAKSI OBSIDIAN"
+		print("=== PERTANDINGAN SELESAI! PEMENANG: ", winner_name, " ===")
+		game_over.emit(current_turn)
+		return
+	
+	_switch_turn()
+
+func _switch_turn() -> void:
+	if current_turn == ChessPiece.Faction.GOLD:
+		current_turn = ChessPiece.Faction.OBSIDIAN
+		print("=== GILIRAN: FAKSI OBSIDIAN ===")
+	else:
+		current_turn = ChessPiece.Faction.GOLD
+		print("=== GILIRAN: FAKSI EMAS (GOLD) ===")
+	turn_changed.emit(current_turn)
+
+# ==============================================================================
+# LOGIKA ATURAN GERAK BIDAK CATUR
+# ==============================================================================
+func _get_valid_moves(piece: ChessPiece) -> Array[Vector2i]:
+	var moves: Array[Vector2i] = []
+	var pos := piece.grid_pos
+	
+	match piece.type:
+		ChessPiece.PieceType.PAWN:
+			var dir: int = -1 if piece.faction == ChessPiece.Faction.GOLD else 1
+			var start_row: int = 6 if piece.faction == ChessPiece.Faction.GOLD else 1
+			
+			# Maju 1 langkah
+			var one_step := Vector2i(pos.x, pos.y + dir)
+			if _is_inside_board(one_step) and not board_state.has(one_step):
+				moves.append(one_step)
+				# Maju 2 langkah dari baris awal
+				var two_step := Vector2i(pos.x, pos.y + (dir * 2))
+				if pos.y == start_row and not board_state.has(two_step):
+					moves.append(two_step)
+			
+			# Makan serong kiri & kanan
+			for dx in [-1, 1]:
+				var diag := Vector2i(pos.x + dx, pos.y + dir)
+				if _is_inside_board(diag) and board_state.has(diag):
+					var target: ChessPiece = board_state[diag]
+					if target.faction != piece.faction:
+						moves.append(diag)
+		
+		ChessPiece.PieceType.ROOK:
+			moves.append_array(_get_sliding_moves(piece, [
+				Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)
+			]))
+		
+		ChessPiece.PieceType.BISHOP:
+			moves.append_array(_get_sliding_moves(piece, [
+				Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)
+			]))
+		
+		ChessPiece.PieceType.QUEEN:
+			moves.append_array(_get_sliding_moves(piece, [
+				Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1),
+				Vector2i(1, 1), Vector2i(1, -1), Vector2i(-1, 1), Vector2i(-1, -1)
+			]))
+		
+		ChessPiece.PieceType.KNIGHT:
+			var jumps: Array[Vector2i] = [
+				Vector2i(1, 2), Vector2i(2, 1), Vector2i(2, -1), Vector2i(1, -2),
+				Vector2i(-1, -2), Vector2i(-2, -1), Vector2i(-2, 1), Vector2i(-1, 2)
+			]
+			for j in jumps:
+				var target_pos: Vector2i = pos + j
+				if _can_land_on(piece, target_pos):
+					moves.append(target_pos)
+		
+		ChessPiece.PieceType.KING:
+			for dx in [-1, 0, 1]:
+				for dy in [-1, 0, 1]:
+					if dx == 0 and dy == 0:
+						continue
+					var target_pos := pos + Vector2i(dx, dy)
+					if _can_land_on(piece, target_pos):
+						moves.append(target_pos)
+	
+	return moves
+
+func _get_sliding_moves(piece: ChessPiece, directions: Array[Vector2i]) -> Array[Vector2i]:
+	var moves: Array[Vector2i] = []
+	for dir in directions:
+		var current := piece.grid_pos + dir
+		while _is_inside_board(current):
+			if not board_state.has(current):
+				moves.append(current)
+			else:
+				var occupant: ChessPiece = board_state[current]
+				if occupant.faction != piece.faction:
+					moves.append(current)
+				break
+			current += dir
+	return moves
+
+func _can_land_on(piece: ChessPiece, target_pos: Vector2i) -> bool:
+	if not _is_inside_board(target_pos):
+		return false
+	if not board_state.has(target_pos):
+		return true
+	var occupant: ChessPiece = board_state[target_pos]
+	return occupant.faction != piece.faction
+
+func _is_inside_board(pos: Vector2i) -> bool:
+	return pos.x >= 0 and pos.x < 8 and pos.y >= 0 and pos.y < 8
 
 func grid_to_world(grid_pos: Vector2i) -> Vector3:
 	var offset: float = (8.0 * tile_size) / 2.0 - (tile_size / 2.0)
