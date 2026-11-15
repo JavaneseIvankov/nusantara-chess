@@ -14,6 +14,9 @@ const PIECE_SCENE: PackedScene = preload("res://scenes/pieces/chess_piece.tscn")
 var light_material: StandardMaterial3D
 var dark_material: StandardMaterial3D
 var selection_highlight: Node3D
+var last_move_from_highlight: Node3D
+var last_move_to_highlight: Node3D
+var king_check_highlight: Node3D
 var valid_moves_container: Node3D
 
 var current_turn: ChessPiece.Faction = ChessPiece.Faction.GOLD
@@ -27,7 +30,7 @@ var board_state: Dictionary = {} # Vector2i -> ChessPiece
 func _ready() -> void:
 	_setup_materials()
 	_generate_board()
-	_create_highlight_frame()
+	_create_highlights()
 	_create_valid_moves_container()
 	_spawn_initial_pieces()
 
@@ -69,20 +72,26 @@ func _generate_board() -> void:
 			
 			add_child(tile_body)
 
-func _create_highlight_frame() -> void:
-	selection_highlight = Node3D.new()
-	selection_highlight.name = "SelectionHighlight"
-	selection_highlight.visible = false
+func _create_highlights() -> void:
+	selection_highlight = _make_border_frame("SelectionHighlight", Color(1.0, 0.85, 0.3), 2.5, 0.94)
+	last_move_from_highlight = _make_border_frame("LastMoveFrom", Color(0.45, 0.75, 1.0), 1.2, 0.90)
+	last_move_to_highlight = _make_border_frame("LastMoveTo", Color(0.45, 0.75, 1.0), 1.6, 0.92)
+	king_check_highlight = _make_border_frame("KingCheckHighlight", Color(1.0, 0.2, 0.15), 3.2, 0.95)
+
+func _make_border_frame(node_name: String, glow_color: Color, energy: float, scale_factor: float) -> Node3D:
+	var frame := Node3D.new()
+	frame.name = node_name
+	frame.visible = false
 	
 	var glow_mat := StandardMaterial3D.new()
-	glow_mat.albedo_color = Color(1.0, 0.85, 0.3)
+	glow_mat.albedo_color = glow_color
 	glow_mat.emission_enabled = true
-	glow_mat.emission = Color(1.0, 0.78, 0.2)
-	glow_mat.emission_energy_multiplier = 2.5
+	glow_mat.emission = glow_color
+	glow_mat.emission_energy_multiplier = energy
 	
-	var thickness: float = 0.05
+	var thickness: float = 0.045
 	var height: float = 0.015
-	var edge_len: float = tile_size * 0.94
+	var edge_len: float = tile_size * scale_factor
 	var half_span: float = (edge_len - thickness) / 2.0
 	
 	var borders := [
@@ -99,9 +108,10 @@ func _create_highlight_frame() -> void:
 		bar.mesh = mesh
 		bar.material_override = glow_mat
 		bar.position = b["pos"]
-		selection_highlight.add_child(bar)
+		frame.add_child(bar)
 	
-	add_child(selection_highlight)
+	add_child(frame)
+	return frame
 
 func _create_valid_moves_container() -> void:
 	valid_moves_container = Node3D.new()
@@ -225,13 +235,19 @@ func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> 
 	if captured_piece != null:
 		captured_piece.queue_free()
 	
+	var origin_grid := selected_grid
 	var moving_piece := selected_piece
-	board_state.erase(selected_grid)
+	board_state.erase(origin_grid)
 	board_state[target_grid] = moving_piece
+	
+	# Sorot jejak petak asal & tujuan langkah terakhir
+	last_move_from_highlight.position = grid_to_world(origin_grid)
+	last_move_from_highlight.visible = true
+	last_move_to_highlight.position = grid_to_world(target_grid)
+	last_move_to_highlight.visible = true
 	
 	moving_piece.move_to(target_grid, grid_to_world(target_grid))
 	
-	# Cek Promosi Pion saat mencapai baris paling ujung lawan
 	if moving_piece.type == ChessPiece.PieceType.PAWN:
 		var promotion_row: int = 0 if moving_piece.faction == ChessPiece.Faction.GOLD else 7
 		if target_grid.y == promotion_row:
@@ -245,6 +261,16 @@ func _switch_turn() -> void:
 	turn_changed.emit(current_turn)
 	
 	var in_check: bool = _is_king_in_check(current_turn, board_state)
+	
+	# Sorot petak di bawah Raja jika sedang terancam Skak
+	if in_check:
+		var king_grid := _find_king_pos(current_turn, board_state)
+		if king_grid != Vector2i(-1, -1):
+			king_check_highlight.position = grid_to_world(king_grid)
+			king_check_highlight.visible = true
+	else:
+		king_check_highlight.visible = false
+	
 	var has_any_legal_move: bool = _faction_has_legal_moves(current_turn)
 	
 	if not has_any_legal_move:
@@ -257,6 +283,13 @@ func _switch_turn() -> void:
 		return
 	
 	check_state_changed.emit(in_check)
+
+func _find_king_pos(faction: ChessPiece.Faction, state: Dictionary) -> Vector2i:
+	for pos in state.keys():
+		var p: ChessPiece = state[pos]
+		if p.faction == faction and p.type == ChessPiece.PieceType.KING:
+			return pos
+	return Vector2i(-1, -1)
 
 # ==============================================================================
 # LOGIKA VALIDASI SKAK (CHECK) & SKAKMAT (CHECKMATE)
@@ -279,14 +312,7 @@ func _is_move_safe_for_king(piece: ChessPiece, target_pos: Vector2i) -> bool:
 	return not _is_king_in_check(piece.faction, sim_state, piece, target_pos)
 
 func _is_king_in_check(faction: ChessPiece.Faction, state: Dictionary, moved_piece: ChessPiece = null, moved_pos: Vector2i = Vector2i(-1, -1)) -> bool:
-	var king_pos: Vector2i = Vector2i(-1, -1)
-	
-	for pos in state.keys():
-		var p: ChessPiece = state[pos]
-		if p.faction == faction and p.type == ChessPiece.PieceType.KING:
-			king_pos = pos
-			break
-	
+	var king_pos := _find_king_pos(faction, state)
 	if king_pos == Vector2i(-1, -1):
 		return false
 	
