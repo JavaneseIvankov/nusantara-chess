@@ -1,0 +1,35 @@
+extends Node3D
+
+@onready var camera_rig: Node3D = $CameraRig
+@onready var chess_board: Node3D = $ChessBoard
+@onready var game_hud: GameHUD = $GameHUD
+
+func _ready() -> void:
+	# Hubungkan sinyal dari papan catur ke UI
+	chess_board.turn_changed.connect(_on_turn_changed)
+	chess_board.game_over.connect(_on_game_over)
+	
+	# Hubungkan tombol UI ke fungsi game
+	game_hud.camera_reset_requested.connect(_on_camera_reset)
+	game_hud.restart_requested.connect(_on_restart_game)
+	game_hud.forfeit_requested.connect(_on_forfeit_game)
+
+func _on_turn_changed(new_faction: ChessPiece.Faction) -> void:
+	game_hud.update_turn(new_faction)
+
+func _on_game_over(winner_faction: ChessPiece.Faction) -> void:
+	game_hud.show_winner(winner_faction)
+
+func _on_camera_reset() -> void:
+	if camera_rig.has_method("reset_camera"):
+		camera_rig.reset_camera()
+
+func _on_restart_game() -> void:
+	get_tree().reload_current_scene()
+
+func _on_forfeit_game() -> void:
+	if chess_board.is_game_over:
+		return
+	chess_board.is_game_over = true
+	var winner := ChessPiece.Faction.OBSIDIAN if chess_board.current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
+	game_hud.show_winner(winner)

@@ -1,0 +1,12 @@
+[gd_scene format=3 uid="uid://btgnvpabnejju"]
+
+[ext_resource type="Script" uid="uid://dac8cbxt2m0k" path="res://scenes/ui/game_hud.gd" id="1_xsr0h"]
+
+[node name="GameHUD" type="Control" unique_id=1670950217]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_xsr0h")
