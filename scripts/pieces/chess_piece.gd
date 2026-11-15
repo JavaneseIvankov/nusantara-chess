@@ -3,6 +3,7 @@ extends Node3D
 
 enum PieceType { PAWN, ROOK, KNIGHT, BISHOP, QUEEN, KING }
 enum Faction { GOLD, OBSIDIAN }
+enum HighlightState { NONE, SELECTED, CHECK }
 
 @export var type: PieceType = PieceType.PAWN
 @export var faction: Faction = Faction.GOLD
@@ -11,6 +12,9 @@ enum Faction { GOLD, OBSIDIAN }
 var grid_pos: Vector2i = Vector2i.ZERO
 var has_moved: bool = false
 var visual_root: Node3D
+var overlay_material: ShaderMaterial
+
+const FRESNEL_SHADER: Shader = preload("res://assets/shaders/fresnel_rim_highlight.gdshader")
 
 const MODEL_PATHS := {
 	PieceType.PAWN: "res://assets/models/pieces/piece_pawn.glb",
@@ -26,7 +30,38 @@ func setup(p_type: PieceType, p_faction: Faction, start_grid: Vector2i, world_po
 	faction = p_faction
 	grid_pos = start_grid
 	position = world_pos
+	_init_overlay_material()
 	_build_visual()
+
+func _init_overlay_material() -> void:
+	overlay_material = ShaderMaterial.new()
+	overlay_material.shader = FRESNEL_SHADER
+
+func set_highlight_state(state: HighlightState) -> void:
+	if visual_root == null or overlay_material == null:
+		return
+	
+	match state:
+		HighlightState.NONE:
+			_apply_overlay_recursive(visual_root, null)
+		HighlightState.SELECTED:
+			overlay_material.set_shader_parameter("rim_color", Color(1.0, 0.84, 0.28, 1.0))
+			overlay_material.set_shader_parameter("fresnel_power", 2.4)
+			overlay_material.set_shader_parameter("intensity", 1.8)
+			overlay_material.set_shader_parameter("pulse_speed", 4.0)
+			_apply_overlay_recursive(visual_root, overlay_material)
+		HighlightState.CHECK:
+			overlay_material.set_shader_parameter("rim_color", Color(1.0, 0.18, 0.12, 1.0))
+			overlay_material.set_shader_parameter("fresnel_power", 2.0)
+			overlay_material.set_shader_parameter("intensity", 2.6)
+			overlay_material.set_shader_parameter("pulse_speed", 7.5)
+			_apply_overlay_recursive(visual_root, overlay_material)
+
+func _apply_overlay_recursive(node: Node, mat: Material) -> void:
+	if node is MeshInstance3D:
+		node.material_overlay = mat
+	for child in node.get_children():
+		_apply_overlay_recursive(child, mat)
 
 func promote_to(new_type: PieceType) -> void:
 	type = new_type
@@ -58,14 +93,12 @@ func _build_visual() -> void:
 	visual_root.name = "VisualRoot"
 	add_child(visual_root)
 	
-	# Arahkan bidak Obsidian menghadap ke selatan (+Z) menuju kubu Emas
 	if faction == Faction.OBSIDIAN:
 		visual_root.rotation.y = PI
 	
 	var mat := _create_faction_material()
 	var model_path: String = MODEL_PATHS.get(type, "")
 	
-	# Auto-Loader: Cek apakah aset .glb final dari tim Blender sudah tersedia
 	if model_path != "" and ResourceLoader.exists(model_path):
 		var packed_scene: PackedScene = load(model_path)
 		if packed_scene != null:
@@ -75,7 +108,6 @@ func _build_visual() -> void:
 				_apply_material_recursive(model_instance, mat)
 			return
 	
-	# Fallback Placeholder Geometris jika file .glb belum disetor
 	_build_placeholder_mesh(visual_root, mat)
 
 func _create_faction_material() -> StandardMaterial3D:

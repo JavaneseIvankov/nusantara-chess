@@ -29,6 +29,7 @@ var awaiting_promotion: bool = false
 
 var selected_grid: Vector2i = Vector2i(-1, -1)
 var selected_piece: ChessPiece = null
+var checked_king_piece: ChessPiece = null
 var valid_moves: Array[Vector2i] = []
 var board_state: Dictionary = {} # Vector2i -> ChessPiece
 
@@ -38,6 +39,7 @@ var pending_promotion_pawn: ChessPiece = null
 var pending_promotion_from: Vector2i = Vector2i(-1, -1)
 var pending_promotion_to: Vector2i = Vector2i(-1, -1)
 var pending_promotion_capture: bool = false
+
 
 func _ready() -> void:
 	_setup_materials()
@@ -197,8 +199,14 @@ func _handle_tile_click(clicked_grid: Vector2i) -> void:
 		_select_piece(clicked_grid, clicked_piece)
 
 func _select_piece(grid_pos: Vector2i, piece: ChessPiece) -> void:
+	if selected_piece != null and selected_piece != checked_king_piece:
+		selected_piece.set_highlight_state(ChessPiece.HighlightState.NONE)
+	
 	selected_grid = grid_pos
 	selected_piece = piece
+	if selected_piece != checked_king_piece:
+		selected_piece.set_highlight_state(ChessPiece.HighlightState.SELECTED)
+	
 	selection_highlight.position = grid_to_world(grid_pos)
 	selection_highlight.visible = true
 	
@@ -206,6 +214,12 @@ func _select_piece(grid_pos: Vector2i, piece: ChessPiece) -> void:
 	_render_valid_move_markers()
 
 func _clear_selection() -> void:
+	if selected_piece != null:
+		if selected_piece == checked_king_piece:
+			selected_piece.set_highlight_state(ChessPiece.HighlightState.CHECK)
+		else:
+			selected_piece.set_highlight_state(ChessPiece.HighlightState.NONE)
+	
 	selected_grid = Vector2i(-1, -1)
 	selected_piece = null
 	valid_moves.clear()
@@ -352,11 +366,18 @@ func _switch_turn() -> void:
 	
 	var in_check: bool = _is_king_in_check(current_turn, board_state)
 	
+	if checked_king_piece != null:
+		checked_king_piece.set_highlight_state(ChessPiece.HighlightState.NONE)
+		checked_king_piece = null
+	
 	if in_check:
 		var king_grid := _find_king_pos(current_turn, board_state)
 		if king_grid != Vector2i(-1, -1):
 			king_check_highlight.position = grid_to_world(king_grid)
 			king_check_highlight.visible = true
+			checked_king_piece = board_state.get(king_grid, null)
+			if checked_king_piece != null:
+				checked_king_piece.set_highlight_state(ChessPiece.HighlightState.CHECK)
 	else:
 		king_check_highlight.visible = false
 	

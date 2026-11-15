@@ -10,11 +10,37 @@ const ENV_PATHS := {
 	"candi": "res://assets/models/environment/candi_bentar.glb"
 }
 
+var torch_lights: Array[OmniLight3D] = []
+var flicker_time: float = 0.0
+
 func _ready() -> void:
+	_setup_post_processing()
 	_build_courtyard_floor()
 	_build_board_frame()
 	_build_torch_pillars()
 	_build_candi_bentar()
+
+func _process(delta: float) -> void:
+	flicker_time += delta
+	for i in range(torch_lights.size()):
+		var light := torch_lights[i]
+		# Kombinasi dua gelombang sinus berbeda frekuensi agar getaran api terlihat organik
+		var wave := sin(flicker_time * 9.5 + i * 1.7) * 0.16 + cos(flicker_time * 15.3 + i * 2.3) * 0.09
+		light.light_energy = 2.6 + wave
+		light.omni_range = 8.5 + wave * 0.6
+
+func _setup_post_processing() -> void:
+	var env_node := get_tree().root.find_child("WorldEnvironment", true, false) as WorldEnvironment
+	if env_node == null or env_node.environment == null:
+		return
+	
+	var env := env_node.environment
+	env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	env.glow_enabled = true
+	env.glow_intensity = 0.65
+	env.glow_strength = 0.95
+	env.glow_bloom = 0.18
+	env.glow_blend_mode = Environment.GLOW_BLEND_MODE_SOFTLIGHT
 
 func _try_load_glb(key: String) -> Node3D:
 	var path: String = ENV_PATHS.get(key, "")
@@ -85,7 +111,7 @@ func _build_board_frame() -> void:
 		bar.position = s["pos"]
 		frame_root.add_child(bar)
 
-# 3. Empat Tiang Obor Batu di Sudut Papan + Partikel Percikan Api
+# 3. Empat Tiang Obor Batu + Partikel Percikan Api + OmniLight3D Bergetar Organik
 func _build_torch_pillars() -> void:
 	var pillars_root := Node3D.new()
 	pillars_root.name = "TorchPillars"
@@ -150,7 +176,6 @@ func _build_torch_pillars() -> void:
 			ember.position.y = 2.25
 			torch_node.add_child(ember)
 		
-		# Efek partikel percikan api tetap menyala di atas obor
 		var sparks := GPUParticles3D.new()
 		sparks.amount = 18
 		sparks.lifetime = 1.4
@@ -158,8 +183,18 @@ func _build_torch_pillars() -> void:
 		sparks.draw_pass_1 = spark_mesh
 		sparks.position.y = 2.3
 		torch_node.add_child(sparks)
+		
+		# Cahaya Obor Dinamis
+		var light := OmniLight3D.new()
+		light.light_color = Color(1.0, 0.62, 0.22)
+		light.light_energy = 2.6
+		light.omni_range = 8.5
+		light.omni_attenuation = 1.35
+		light.position = Vector3(0, 2.55, 0)
+		torch_node.add_child(light)
+		torch_lights.append(light)
 
-# 4. Gerbang Candi Bentar Latar Belakang (Otomatis muncul jika candi_bentar.glb tersedia)
+# 4. Gerbang Candi Bentar Latar Belakang
 func _build_candi_bentar() -> void:
 	var north_candi := _try_load_glb("candi")
 	if north_candi != null:
