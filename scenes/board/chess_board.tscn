@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://cssct0atfxtnp"]
+
+[ext_resource type="Script" uid="uid://lbnvvuk54km1" path="res://scripts/board/chess_board.gd" id="1_s1lko"]
+
+[node name="ChessBoard" type="Node3D" unique_id=1526687798]
+script = ExtResource("1_s1lko")
