@@ -7,6 +7,7 @@ enum Faction { GOLD, OBSIDIAN } # GOLD = Faksi Nusantara Terang, OBSIDIAN = Faks
 var type: PieceType = PieceType.PAWN
 var faction: Faction = Faction.GOLD
 var grid_pos: Vector2i = Vector2i.ZERO
+var has_moved: bool = false
 
 @onready var visual_mesh: MeshInstance3D = $VisualMesh
 
@@ -80,6 +81,7 @@ func _build_placeholder_visual() -> void:
 # Animasi meluncur mulus saat bidak berpindah petak
 func move_to(new_grid_pos: Vector2i, target_world_pos: Vector3) -> void:
 	grid_pos = new_grid_pos
+	has_moved = true
 	
 	var duration: float = 0.28
 	var tween := create_tween()

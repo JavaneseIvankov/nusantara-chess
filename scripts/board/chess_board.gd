@@ -4,6 +4,7 @@ signal turn_changed(new_faction: ChessPiece.Faction)
 signal check_state_changed(is_in_check: bool)
 signal piece_captured(capturer_faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType)
 signal move_recorded(faction: ChessPiece.Faction, notation: String)
+signal promotion_required
 signal game_over(winner_faction: ChessPiece.Faction, reason: String)
 
 @export var tile_size: float = 1.0
@@ -22,13 +23,21 @@ var king_check_highlight: Node3D
 var valid_moves_container: Node3D
 
 var current_turn: ChessPiece.Faction = ChessPiece.Faction.GOLD
-var is_in_menu: bool = true
 var is_game_over: bool = false
+var is_in_menu: bool = true
+var awaiting_promotion: bool = false
 
 var selected_grid: Vector2i = Vector2i(-1, -1)
 var selected_piece: ChessPiece = null
 var valid_moves: Array[Vector2i] = []
 var board_state: Dictionary = {} # Vector2i -> ChessPiece
+
+# Status khusus En Passant & Promosi tertunda
+var en_passant_target: Vector2i = Vector2i(-1, -1)
+var pending_promotion_pawn: ChessPiece = null
+var pending_promotion_from: Vector2i = Vector2i(-1, -1)
+var pending_promotion_to: Vector2i = Vector2i(-1, -1)
+var pending_promotion_capture: bool = false
 
 func _ready() -> void:
 	_setup_materials()
@@ -147,7 +156,7 @@ func _spawn_piece(p_type: ChessPiece.PieceType, p_faction: ChessPiece.Faction, g
 	board_state[grid_pos] = piece
 
 func _unhandled_input(event: InputEvent) -> void:
-	if is_game_over or is_in_menu:
+	if is_game_over or is_in_menu or awaiting_promotion:
 		return
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_raycast_board(event.position)
@@ -216,7 +225,8 @@ func _render_valid_move_markers() -> void:
 		marker.position = grid_to_world(move_pos) + Vector3(0, 0.015, 0)
 		
 		var mat := StandardMaterial3D.new()
-		var is_capture: bool = board_state.has(move_pos)
+		var is_ep: bool = (selected_piece.type == ChessPiece.PieceType.PAWN and move_pos == en_passant_target)
+		var is_capture: bool = board_state.has(move_pos) or is_ep
 		if is_capture:
 			mat.albedo_color = Color(1.0, 0.25, 0.2)
 			mat.emission = Color(1.0, 0.2, 0.15)
@@ -235,48 +245,101 @@ func _clear_valid_move_markers() -> void:
 		child.queue_free()
 
 func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> void:
+	var origin_grid := selected_grid
+	var moving_piece := selected_piece
 	var was_capture: bool = captured_piece != null
-	if was_capture:
+	var custom_notation: String = ""
+	
+	# 1. Cek Penangkapan En Passant
+	if moving_piece.type == ChessPiece.PieceType.PAWN and target_grid == en_passant_target and captured_piece == null:
+		var ep_pawn_pos := Vector2i(target_grid.x, origin_grid.y)
+		var ep_pawn: ChessPiece = board_state.get(ep_pawn_pos, null)
+		if ep_pawn != null:
+			was_capture = true
+			piece_captured.emit(current_turn, ep_pawn.type)
+			board_state.erase(ep_pawn_pos)
+			ep_pawn.queue_free()
+			custom_notation = "%s×%s e.p." % [_grid_to_algebraic(origin_grid), _grid_to_algebraic(target_grid)]
+	elif was_capture:
 		piece_captured.emit(current_turn, captured_piece.type)
 		captured_piece.queue_free()
 	
-	var origin_grid := selected_grid
-	var moving_piece := selected_piece
+	# 2. Cek Langkah Rokade (King berpindah 2 petak secara horizontal)
+	if moving_piece.type == ChessPiece.PieceType.KING and abs(target_grid.x - origin_grid.x) == 2:
+		var is_kingside: bool = target_grid.x > origin_grid.x
+		var rook_from_x: int = 7 if is_kingside else 0
+		var rook_to_x: int = 5 if is_kingside else 3
+		var rook_pos := Vector2i(rook_from_x, origin_grid.y)
+		var rook_dest := Vector2i(rook_to_x, origin_grid.y)
+		var rook: ChessPiece = board_state.get(rook_pos, null)
+		if rook != null:
+			board_state.erase(rook_pos)
+			board_state[rook_dest] = rook
+			rook.move_to(rook_dest, grid_to_world(rook_dest))
+		custom_notation = "O-O" if is_kingside else "O-O-O"
+	
+	# Perbarui status board_state untuk bidak utama
 	board_state.erase(origin_grid)
 	board_state[target_grid] = moving_piece
 	
+	# Perbarui target En Passant untuk giliran berikutnya
+	if moving_piece.type == ChessPiece.PieceType.PAWN and abs(target_grid.y - origin_grid.y) == 2:
+		var mid_y: int = (origin_grid.y + target_grid.y) / 2
+		en_passant_target = Vector2i(origin_grid.x, mid_y)
+	else:
+		en_passant_target = Vector2i(-1, -1)
+	
+	# Sorot jejak petak asal & tujuan
 	last_move_from_highlight.position = grid_to_world(origin_grid)
 	last_move_from_highlight.visible = true
 	last_move_to_highlight.position = grid_to_world(target_grid)
 	last_move_to_highlight.visible = true
 	
 	moving_piece.move_to(target_grid, grid_to_world(target_grid))
+	_clear_selection()
 	
-	var promoted: bool = false
+	# 3. Cek Promosi Pion Interaktif
 	if moving_piece.type == ChessPiece.PieceType.PAWN:
 		var promotion_row: int = 0 if moving_piece.faction == ChessPiece.Faction.GOLD else 7
 		if target_grid.y == promotion_row:
-			moving_piece.promote_to(ChessPiece.PieceType.QUEEN)
-			promoted = true
+			awaiting_promotion = true
+			pending_promotion_pawn = moving_piece
+			pending_promotion_from = origin_grid
+			pending_promotion_to = target_grid
+			pending_promotion_capture = was_capture
+			promotion_required.emit()
+			return
 	
-	var notation := _format_move_notation(moving_piece.type, origin_grid, target_grid, was_capture, promoted)
+	var notation := custom_notation if custom_notation != "" else _format_move_notation(moving_piece.type, origin_grid, target_grid, was_capture, ChessPiece.PieceType.PAWN)
 	move_recorded.emit(current_turn, notation)
-	
-	_clear_selection()
 	_switch_turn()
 
-func _format_move_notation(p_type: ChessPiece.PieceType, from_pos: Vector2i, to_pos: Vector2i, is_capture: bool, promoted: bool) -> String:
-	var prefix := ""
-	match p_type:
-		ChessPiece.PieceType.KING: prefix = "♔"
-		ChessPiece.PieceType.QUEEN: prefix = "♕"
-		ChessPiece.PieceType.ROOK: prefix = "♖"
-		ChessPiece.PieceType.BISHOP: prefix = "♗"
-		ChessPiece.PieceType.KNIGHT: prefix = "♘"
+func complete_pawn_promotion(chosen_type: ChessPiece.PieceType) -> void:
+	if not awaiting_promotion or pending_promotion_pawn == null:
+		return
 	
+	pending_promotion_pawn.promote_to(chosen_type)
+	var notation := _format_move_notation(ChessPiece.PieceType.PAWN, pending_promotion_from, pending_promotion_to, pending_promotion_capture, chosen_type)
+	move_recorded.emit(current_turn, notation)
+	
+	awaiting_promotion = false
+	pending_promotion_pawn = null
+	_switch_turn()
+
+func _format_move_notation(p_type: ChessPiece.PieceType, from_pos: Vector2i, to_pos: Vector2i, is_capture: bool, promo_type: ChessPiece.PieceType) -> String:
+	var prefix := _piece_symbol(p_type)
 	var sep := "×" if is_capture else "→"
-	var promo := "=♕" if promoted else ""
+	var promo := "=" + _piece_symbol(promo_type) if promo_type != ChessPiece.PieceType.PAWN else ""
 	return "%s%s%s%s%s" % [prefix, _grid_to_algebraic(from_pos), sep, _grid_to_algebraic(to_pos), promo]
+
+func _piece_symbol(p_type: ChessPiece.PieceType) -> String:
+	match p_type:
+		ChessPiece.PieceType.KING: return "♔"
+		ChessPiece.PieceType.QUEEN: return "♕"
+		ChessPiece.PieceType.ROOK: return "♖"
+		ChessPiece.PieceType.BISHOP: return "♗"
+		ChessPiece.PieceType.KNIGHT: return "♘"
+	return ""
 
 func _grid_to_algebraic(pos: Vector2i) -> String:
 	var files := ["a", "b", "c", "d", "e", "f", "g", "h"]
@@ -318,10 +381,10 @@ func _find_king_pos(faction: ChessPiece.Faction, state: Dictionary) -> Vector2i:
 	return Vector2i(-1, -1)
 
 # ==============================================================================
-# LOGIKA VALIDASI SKAK (CHECK) & SKAKMAT (CHECKMATE)
+# LOGIKA VALIDASI SKAK, ROKADE & EN PASSANT
 # ==============================================================================
 func _get_legal_moves(piece: ChessPiece) -> Array[Vector2i]:
-	var pseudo_moves := _get_pseudo_legal_moves(piece, piece.grid_pos, board_state)
+	var pseudo_moves := _get_pseudo_legal_moves(piece, piece.grid_pos, board_state, true)
 	var legal_moves: Array[Vector2i] = []
 	
 	for target_pos in pseudo_moves:
@@ -333,8 +396,12 @@ func _get_legal_moves(piece: ChessPiece) -> Array[Vector2i]:
 func _is_move_safe_for_king(piece: ChessPiece, target_pos: Vector2i) -> bool:
 	var sim_state := board_state.duplicate()
 	sim_state.erase(piece.grid_pos)
-	sim_state[target_pos] = piece
 	
+	# Simulasikan juga penghapusan pion lawan jika langkahnya En Passant
+	if piece.type == ChessPiece.PieceType.PAWN and target_pos == en_passant_target and not sim_state.has(target_pos):
+		sim_state.erase(Vector2i(target_pos.x, piece.grid_pos.y))
+	
+	sim_state[target_pos] = piece
 	return not _is_king_in_check(piece.faction, sim_state, piece, target_pos)
 
 func _is_king_in_check(faction: ChessPiece.Faction, state: Dictionary, moved_piece: ChessPiece = null, moved_pos: Vector2i = Vector2i(-1, -1)) -> bool:
@@ -346,7 +413,7 @@ func _is_king_in_check(faction: ChessPiece.Faction, state: Dictionary, moved_pie
 		var enemy: ChessPiece = state[pos]
 		if enemy.faction != faction:
 			var effective_pos: Vector2i = moved_pos if enemy == moved_piece else pos
-			var attacks := _get_pseudo_legal_moves(enemy, effective_pos, state)
+			var attacks := _get_pseudo_legal_moves(enemy, effective_pos, state, false)
 			if king_pos in attacks:
 				return true
 	
@@ -363,10 +430,7 @@ func _faction_has_legal_moves(faction: ChessPiece.Faction) -> bool:
 			return true
 	return false
 
-# ==============================================================================
-# POLA GERAK DASAR BIDAK (PSEUDO-LEGAL)
-# ==============================================================================
-func _get_pseudo_legal_moves(piece: ChessPiece, pos: Vector2i, state: Dictionary) -> Array[Vector2i]:
+func _get_pseudo_legal_moves(piece: ChessPiece, pos: Vector2i, state: Dictionary, include_castling: bool = false) -> Array[Vector2i]:
 	var moves: Array[Vector2i] = []
 	
 	match piece.type:
@@ -383,9 +447,12 @@ func _get_pseudo_legal_moves(piece: ChessPiece, pos: Vector2i, state: Dictionary
 			
 			for dx in [-1, 1]:
 				var diag := Vector2i(pos.x + dx, pos.y + dir)
-				if _is_inside_board(diag) and state.has(diag):
-					var target: ChessPiece = state[diag]
-					if target.faction != piece.faction:
+				if _is_inside_board(diag):
+					if state.has(diag):
+						var target: ChessPiece = state[diag]
+						if target.faction != piece.faction:
+							moves.append(diag)
+					elif diag == en_passant_target:
 						moves.append(diag)
 		
 		ChessPiece.PieceType.ROOK:
@@ -422,6 +489,23 @@ func _get_pseudo_legal_moves(piece: ChessPiece, pos: Vector2i, state: Dictionary
 					var target_pos: Vector2i = pos + Vector2i(dx, dy)
 					if _can_land_on(piece, target_pos, state):
 						moves.append(target_pos)
+			
+			# Rokade (Kingside & Queenside)
+			if include_castling and not piece.has_moved and not _is_king_in_check(piece.faction, state):
+				var row: int = pos.y
+				# Kingside (Benteng kolom 7)
+				var k_rook: ChessPiece = state.get(Vector2i(7, row), null)
+				if k_rook != null and k_rook.type == ChessPiece.PieceType.ROOK and not k_rook.has_moved:
+					if not state.has(Vector2i(5, row)) and not state.has(Vector2i(6, row)):
+						if _is_move_safe_for_king(piece, Vector2i(5, row)) and _is_move_safe_for_king(piece, Vector2i(6, row)):
+							moves.append(Vector2i(6, row))
+				
+				# Queenside (Benteng kolom 0)
+				var q_rook: ChessPiece = state.get(Vector2i(0, row), null)
+				if q_rook != null and q_rook.type == ChessPiece.PieceType.ROOK and not q_rook.has_moved:
+					if not state.has(Vector2i(1, row)) and not state.has(Vector2i(2, row)) and not state.has(Vector2i(3, row)):
+						if _is_move_safe_for_king(piece, Vector2i(3, row)) and _is_move_safe_for_king(piece, Vector2i(2, row)):
+							moves.append(Vector2i(2, row))
 	
 	return moves
 
