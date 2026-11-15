@@ -33,6 +33,7 @@ func _ready() -> void:
 	game_hud.forfeit_requested.connect(_on_forfeit_game)
 
 func _on_start_game() -> void:
+	AudioManager.play_ui_click()
 	chess_board.is_in_menu = false
 	if camera_rig.has_method("start_gameplay_camera"):
 		camera_rig.start_gameplay_camera()
@@ -42,6 +43,7 @@ func _on_start_game() -> void:
 	hud_tween.tween_property(game_hud, "modulate:a", 1.0, 0.4)
 
 func _on_quit_game() -> void:
+	AudioManager.play_ui_click()
 	get_tree().quit()
 
 func _on_turn_changed(new_faction: ChessPiece.Faction) -> void:
@@ -52,37 +54,47 @@ func _on_turn_changed(new_faction: ChessPiece.Faction) -> void:
 			camera_rig.set_faction_side(new_faction)
 
 func _on_auto_flip_toggled(enabled: bool) -> void:
+	AudioManager.play_ui_click()
 	auto_flip_camera = enabled
 	if auto_flip_camera and camera_rig.has_method("set_faction_side"):
 		camera_rig.set_faction_side(chess_board.current_turn)
 
 func _on_check_state_changed(is_in_check: bool) -> void:
 	game_hud.set_check_warning(is_in_check)
+	if is_in_check:
+		AudioManager.play_check()
 
 func _on_piece_captured(capturer_faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType) -> void:
+	AudioManager.play_capture()
 	game_hud.add_captured_piece(capturer_faction, captured_type)
 
 func _on_move_recorded(faction: ChessPiece.Faction, notation: String) -> void:
+	AudioManager.play_move()
 	game_hud.add_move_record(faction, notation)
 
 func _on_promotion_required() -> void:
 	game_hud.show_promotion_choices()
 
 func _on_promotion_piece_selected(chosen_type: ChessPiece.PieceType) -> void:
+	AudioManager.play_ui_click()
 	chess_board.complete_pawn_promotion(chosen_type)
 
 func _on_game_over(winner_faction: ChessPiece.Faction, reason: String) -> void:
+	AudioManager.play_game_over()
 	game_hud.show_winner(winner_faction, reason)
 
 func _on_camera_reset() -> void:
+	AudioManager.play_ui_click()
 	if camera_rig.has_method("reset_camera"):
 		camera_rig.reset_camera()
 
 func _on_camera_top_view() -> void:
+	AudioManager.play_ui_click()
 	if camera_rig.has_method("toggle_top_view"):
 		camera_rig.toggle_top_view()
 
 func _on_restart_game() -> void:
+	AudioManager.play_ui_click()
 	get_tree().reload_current_scene()
 
 func _on_forfeit_game() -> void:
@@ -90,4 +102,5 @@ func _on_forfeit_game() -> void:
 		return
 	chess_board.is_game_over = true
 	var winner := ChessPiece.Faction.OBSIDIAN if chess_board.current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
+	AudioManager.play_game_over()
 	game_hud.show_winner(winner, "LAWAN MENYERAH!")

@@ -228,10 +228,11 @@ func _make_styled_button(label_text: String) -> Button:
 	btn.custom_minimum_size = Vector2(185, 42)
 	btn.add_theme_font_size_override("font_size", 14)
 	btn.add_theme_color_override("font_color", Color(0.95, 0.88, 0.72))
-	btn.add_theme_color_override("font_hover_color", Color(1.0, 0.95, 0.75))
+	btn.add_theme_color_override("font_hover_color", Color(1.0, 0.95, 0.8))
 	btn.add_theme_stylebox_override("normal", _create_button_style(false))
 	btn.add_theme_stylebox_override("hover", _create_button_style(true))
 	btn.add_theme_stylebox_override("pressed", _create_button_style(true))
+	btn.pressed.connect(func(): AudioManager.play_ui_click())
 	return btn
 
 # 5. Panel Pengumuman Pemenang (Tengah Layar)

@@ -37,7 +37,6 @@ func _create_button_style(is_hover: bool = false) -> StyleBoxFlat:
 	return style
 
 func _build_menu_ui() -> void:
-	# Lapisan vignette gelap tipis agar teks menu tajam terbaca di atas latar 3D
 	var backdrop := ColorRect.new()
 	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	backdrop.color = Color(0.03, 0.02, 0.02, 0.38)
@@ -137,10 +136,10 @@ func _make_button(label_text: String) -> Button:
 	btn.add_theme_stylebox_override("normal", _create_button_style(false))
 	btn.add_theme_stylebox_override("hover", _create_button_style(true))
 	btn.add_theme_stylebox_override("pressed", _create_button_style(true))
+	btn.pressed.connect(func(): AudioManager.play_ui_click())
 	return btn
 
 func _on_start_pressed() -> void:
-	# Transisi fade-out mulus sebelum masuk ke laga
 	var tween := create_tween()
 	tween.tween_property(self, "modulate:a", 0.0, 0.45).set_trans(Tween.TRANS_SINE)
 	await tween.finished
