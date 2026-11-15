@@ -30,6 +30,7 @@ var awaiting_promotion: bool = false
 var selected_grid: Vector2i = Vector2i(-1, -1)
 var selected_piece: ChessPiece = null
 var checked_king_piece: ChessPiece = null
+var hovered_piece: ChessPiece = null
 var valid_moves: Array[Vector2i] = []
 var board_state: Dictionary = {} # Vector2i -> ChessPiece
 
@@ -159,8 +160,12 @@ func _spawn_piece(p_type: ChessPiece.PieceType, p_faction: ChessPiece.Faction, g
 
 func _unhandled_input(event: InputEvent) -> void:
 	if is_game_over or is_in_menu or awaiting_promotion:
+		_clear_hover()
 		return
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+	
+	if event is InputEventMouseMotion:
+		_raycast_hover(event.position)
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_raycast_board(event.position)
 
 func _raycast_board(mouse_pos: Vector2) -> void:
@@ -178,6 +183,47 @@ func _raycast_board(mouse_pos: Vector2) -> void:
 	if result and result.collider.has_meta("grid_pos"):
 		var clicked_grid: Vector2i = result.collider.get_meta("grid_pos")
 		_handle_tile_click(clicked_grid)
+
+func _raycast_hover(mouse_pos: Vector2) -> void:
+	var camera := get_viewport().get_camera_3d()
+	if not camera:
+		return
+	
+	var ray_origin := camera.project_ray_origin(mouse_pos)
+	var ray_end := ray_origin + camera.project_ray_normal(mouse_pos) * 100.0
+	
+	var space_state := get_world_3d().direct_space_state
+	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
+	var result := space_state.intersect_ray(query)
+	
+	var new_hover: ChessPiece = null
+	if result and result.collider.has_meta("grid_pos"):
+		var hover_grid: Vector2i = result.collider.get_meta("grid_pos")
+		var p: ChessPiece = board_state.get(hover_grid, null)
+		if p != null and p.faction == current_turn:
+			new_hover = p
+	
+	if new_hover == hovered_piece:
+		return
+	
+	_clear_hover()
+	hovered_piece = new_hover
+	if hovered_piece != null:
+		hovered_piece.set_hovered(true)
+		if hovered_piece != selected_piece and hovered_piece != checked_king_piece:
+			hovered_piece.set_highlight_state(ChessPiece.HighlightState.HOVERED)
+
+func _clear_hover() -> void:
+	if hovered_piece == null:
+		return
+	hovered_piece.set_hovered(false)
+	if hovered_piece == selected_piece:
+		hovered_piece.set_highlight_state(ChessPiece.HighlightState.SELECTED)
+	elif hovered_piece == checked_king_piece:
+		hovered_piece.set_highlight_state(ChessPiece.HighlightState.CHECK)
+	else:
+		hovered_piece.set_highlight_state(ChessPiece.HighlightState.NONE)
+	hovered_piece = null
 
 func _handle_tile_click(clicked_grid: Vector2i) -> void:
 	var clicked_piece: ChessPiece = board_state.get(clicked_grid, null)

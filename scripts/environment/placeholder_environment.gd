@@ -19,6 +19,7 @@ func _ready() -> void:
 	_build_board_frame()
 	_build_torch_pillars()
 	_build_candi_bentar()
+	_build_board_coordinates()
 
 func _process(delta: float) -> void:
 	flicker_time += delta
@@ -208,3 +209,37 @@ func _build_candi_bentar() -> void:
 		south_candi.position = Vector3(0, -board_thickness, 8.5)
 		south_candi.rotation.y = PI
 		add_child(south_candi)
+		
+# 5. Koordinat Papan 3D (A-H & 1-8) di Keempat Sisi Bingkai
+func _build_board_coordinates() -> void:
+	var coords_root := Node3D.new()
+	coords_root.name = "BoardCoordinates"
+	add_child(coords_root)
+	
+	var files := ["A", "B", "C", "D", "E", "F", "G", "H"]
+	var ranks := ["8", "7", "6", "5", "4", "3", "2", "1"]
+	var offset: float = (board_size / 2.0) - 0.5
+	var rim_dist: float = (board_size / 2.0) + 0.22
+	var label_y: float = 0.035
+	
+	for i in range(8):
+		var pos_along: float = i - offset
+		
+		# Sisi Selatan (Kubu Emas) & Utara (Kubu Obsidian - diputar 180 derajat agar terbaca saat kamera auto-flip)
+		_spawn_coord_label(coords_root, files[i], Vector3(pos_along, label_y, rim_dist), 0.0)
+		_spawn_coord_label(coords_root, files[i], Vector3(pos_along, label_y, -rim_dist), PI)
+		
+		# Sisi Barat & Timur (Angka 8 sampai 1)
+		_spawn_coord_label(coords_root, ranks[i], Vector3(-rim_dist, label_y, pos_along), 0.0)
+		_spawn_coord_label(coords_root, ranks[i], Vector3(rim_dist, label_y, pos_along), PI)
+
+func _spawn_coord_label(parent: Node3D, text_val: String, pos: Vector3, yaw_rot: float) -> void:
+	var lbl := Label3D.new()
+	lbl.text = text_val
+	lbl.font_size = 44
+	lbl.outline_size = 10
+	lbl.modulate = Color(0.95, 0.80, 0.42)
+	lbl.outline_modulate = Color(0.08, 0.05, 0.03)
+	lbl.position = pos
+	lbl.rotation_degrees = Vector3(-90.0, rad_to_deg(yaw_rot), 0.0)
+	parent.add_child(lbl)
