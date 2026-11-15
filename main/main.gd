@@ -4,6 +4,8 @@ extends Node3D
 @onready var chess_board: Node3D = $ChessBoard
 @onready var game_hud: GameHUD = $GameHUD
 
+var auto_flip_camera: bool = true
+
 func _ready() -> void:
 	chess_board.turn_changed.connect(_on_turn_changed)
 	chess_board.check_state_changed.connect(_on_check_state_changed)
@@ -12,11 +14,22 @@ func _ready() -> void:
 	chess_board.game_over.connect(_on_game_over)
 	
 	game_hud.camera_reset_requested.connect(_on_camera_reset)
+	game_hud.auto_flip_toggled.connect(_on_auto_flip_toggled)
+	game_hud.camera_top_view_requested.connect(_on_camera_top_view)
 	game_hud.restart_requested.connect(_on_restart_game)
 	game_hud.forfeit_requested.connect(_on_forfeit_game)
 
 func _on_turn_changed(new_faction: ChessPiece.Faction) -> void:
 	game_hud.update_turn(new_faction)
+	if auto_flip_camera and not chess_board.is_game_over:
+		await get_tree().create_timer(0.32).timeout
+		if not chess_board.is_game_over and camera_rig.has_method("set_faction_side"):
+			camera_rig.set_faction_side(new_faction)
+
+func _on_auto_flip_toggled(enabled: bool) -> void:
+	auto_flip_camera = enabled
+	if auto_flip_camera and camera_rig.has_method("set_faction_side"):
+		camera_rig.set_faction_side(chess_board.current_turn)
 
 func _on_check_state_changed(is_in_check: bool) -> void:
 	game_hud.set_check_warning(is_in_check)
@@ -33,6 +46,10 @@ func _on_game_over(winner_faction: ChessPiece.Faction, reason: String) -> void:
 func _on_camera_reset() -> void:
 	if camera_rig.has_method("reset_camera"):
 		camera_rig.reset_camera()
+
+func _on_camera_top_view() -> void:
+	if camera_rig.has_method("toggle_top_view"):
+		camera_rig.toggle_top_view()
 
 func _on_restart_game() -> void:
 	get_tree().reload_current_scene()
