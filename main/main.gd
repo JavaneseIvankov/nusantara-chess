@@ -12,18 +12,23 @@ func _ready() -> void:
 	game_hud.visible = false
 	game_hud.modulate.a = 0.0
 	
+	# Sinyal Menu Utama
 	main_menu.start_game_requested.connect(_on_start_game)
 	main_menu.quit_game_requested.connect(_on_quit_game)
 	
+	# Sinyal Papan Catur
 	chess_board.turn_changed.connect(_on_turn_changed)
 	chess_board.check_state_changed.connect(_on_check_state_changed)
 	chess_board.piece_captured.connect(_on_piece_captured)
 	chess_board.move_recorded.connect(_on_move_recorded)
+	chess_board.promotion_required.connect(_on_promotion_required)
 	chess_board.game_over.connect(_on_game_over)
 	
+	# Sinyal HUD Permainan
 	game_hud.camera_reset_requested.connect(_on_camera_reset)
 	game_hud.auto_flip_toggled.connect(_on_auto_flip_toggled)
 	game_hud.camera_top_view_requested.connect(_on_camera_top_view)
+	game_hud.promotion_piece_selected.connect(_on_promotion_piece_selected)
 	game_hud.restart_requested.connect(_on_restart_game)
 	game_hud.forfeit_requested.connect(_on_forfeit_game)
 
@@ -59,6 +64,12 @@ func _on_piece_captured(capturer_faction: ChessPiece.Faction, captured_type: Che
 
 func _on_move_recorded(faction: ChessPiece.Faction, notation: String) -> void:
 	game_hud.add_move_record(faction, notation)
+
+func _on_promotion_required() -> void:
+	game_hud.show_promotion_choices()
+
+func _on_promotion_piece_selected(chosen_type: ChessPiece.PieceType) -> void:
+	chess_board.complete_pawn_promotion(chosen_type)
 
 func _on_game_over(winner_faction: ChessPiece.Faction, reason: String) -> void:
 	game_hud.show_winner(winner_faction, reason)

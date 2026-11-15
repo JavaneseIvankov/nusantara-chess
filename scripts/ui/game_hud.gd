@@ -6,11 +6,13 @@ signal auto_flip_toggled(enabled: bool)
 signal camera_top_view_requested
 signal restart_requested
 signal forfeit_requested
+signal promotion_piece_selected(chosen_type: ChessPiece.PieceType)
 
 
 var turn_label: Label
 var game_over_panel: PanelContainer
 var winner_label: Label
+var promotion_panel: PanelContainer
 
 # UI Tawanan Materi (Pojok Kiri Bawah)
 var gold_captured_label: Label
@@ -335,3 +337,57 @@ func show_winner(winner_faction: ChessPiece.Faction, reason: String = "SKAKMAT!"
 	else:
 		winner_label.text = "%s\nPEMENANG: FAKSI OBSIDIAN" % reason
 	game_over_panel.visible = true
+
+# 6. Modal Pilihan Promosi Pion (Tengah Layar)
+func _build_promotion_modal() -> void:
+	promotion_panel = PanelContainer.new()
+	promotion_panel.visible = false
+	promotion_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	promotion_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	promotion_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	promotion_panel.add_theme_stylebox_override("panel", _create_nusantara_panel_style(Color(1.0, 0.82, 0.3)))
+	add_child(promotion_panel)
+	
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	promotion_panel.add_child(vbox)
+	
+	var heading := Label.new()
+	heading.text = "KENAIKAN PANGKAT PRAJURIT"
+	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	heading.add_theme_font_size_override("font_size", 20)
+	heading.add_theme_color_override("font_color", Color(0.96, 0.84, 0.52))
+	vbox.add_child(heading)
+	
+	var sub := Label.new()
+	sub.text = "Pilih gelar baru untuk pion yang menembus garis musuh:"
+	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	sub.add_theme_font_size_override("font_size", 13)
+	sub.add_theme_color_override("font_color", Color(0.9, 0.85, 0.75))
+	vbox.add_child(sub)
+	
+	var hbox := HBoxContainer.new()
+	hbox.add_theme_constant_override("separation", 10)
+	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_child(hbox)
+	
+	var options := [
+		{"label": "♕ MENTERI", "type": ChessPiece.PieceType.QUEEN},
+		{"label": "♖ BENTENG", "type": ChessPiece.PieceType.ROOK},
+		{"label": "♗ GAJAH", "type": ChessPiece.PieceType.BISHOP},
+		{"label": "♘ KUDA", "type": ChessPiece.PieceType.KNIGHT}
+	]
+	
+	for opt in options:
+		var btn := _make_styled_button(opt["label"])
+		btn.custom_minimum_size = Vector2(130, 46)
+		var p_type: ChessPiece.PieceType = opt["type"]
+		btn.pressed.connect(func():
+			promotion_panel.visible = false
+			promotion_piece_selected.emit(p_type)
+		)
+		hbox.add_child(btn)
+
+func show_promotion_choices() -> void:
+	promotion_panel.visible = true
