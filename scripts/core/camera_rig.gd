@@ -43,3 +43,8 @@ func _process(delta: float) -> void:
 	rotation.y = lerp_angle(rotation.y, target_yaw, weight)
 	pitch_pivot.rotation.x = lerp(pitch_pivot.rotation.x, target_pitch, weight)
 	camera.position.z = lerp(camera.position.z, target_zoom, weight)
+
+func reset_camera() -> void:
+	target_yaw = 0.0
+	target_pitch = deg_to_rad(-45.0)
+	target_zoom = 10.5
