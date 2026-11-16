@@ -8,10 +8,10 @@
 [ext_resource type="Script" uid="uid://mrkf4etqkqn2" path="res://scripts/ui/main_menu.gd" id="6_kfbq2"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_7h7mn"]
-sky_top_color = Color(0.019607844, 0.03529412, 0.078431375, 1)
-sky_horizon_color = Color(0.0627451, 0.105882354, 0.2, 1)
-ground_bottom_color = Color(0.019607844, 0.02745098, 0.047058824, 1)
-ground_horizon_color = Color(0.019607844, 0.02745098, 0.047058824, 1)
+sky_top_color = Color(0.065, 0.116, 0.17, 1)
+sky_horizon_color = Color(0.28, 0.36, 0.40, 1)
+ground_bottom_color = Color(0.07, 0.103, 0.13, 1)
+ground_horizon_color = Color(0.28, 0.36, 0.40, 1)
 
 [sub_resource type="Sky" id="Sky_jc63w"]
 sky_material = SubResource("ProceduralSkyMaterial_7h7mn")
@@ -19,6 +19,17 @@ sky_material = SubResource("ProceduralSkyMaterial_7h7mn")
 [sub_resource type="Environment" id="Environment_p5viw"]
 background_mode = 2
 sky = SubResource("Sky_jc63w")
+ambient_light_source = 3
+ambient_light_color = Color(0.71, 0.80, 0.88, 1)
+ambient_light_sky_contribution = 0.18
+ambient_light_energy = 0.64
+tonemap_mode = 3
+ssao_enabled = true
+ssao_radius = 0.8
+ssao_intensity = 1.18
+fog_enabled = true
+fog_light_color = Color(0.25, 0.32, 0.37, 1)
+fog_density = 0.008
 glow_enabled = true
 
 [node name="Main" type="Node3D" unique_id=17699816]
@@ -26,9 +37,10 @@ script = ExtResource("1_c651c")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=707064591]
 transform = Transform3D(0.70710677, -0.579228, 0.4055798, 0, 0.57357645, 0.81915206, -0.70710677, -0.579228, 0.4055798, 0, 0, 0)
-light_color = Color(0.48235294, 0.6039216, 0.8, 1)
-light_energy = 0.4
+light_color = Color(1, 0.90, 0.77, 1)
+light_energy = 1.04
 shadow_enabled = true
+directional_shadow_max_distance = 39.0
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1161302801]
 environment = SubResource("Environment_p5viw")
@@ -40,33 +52,10 @@ script = ExtResource("1_pjrb6")
 transform = Transform3D(1, 0, 0, 0, 0.9969173, 0.0784591, 0, -0.0784591, 0.9969173, 0, 0, 0)
 
 [node name="Camera3D" type="Camera3D" parent="CameraRig/PitchPivot" unique_id=2068823499]
-transform = Transform3D(1, 0, 0, 0, 1.0000002, 0, 0, 0, 1.0000002, 0, 0, 10.5)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 10.15)
+fov = 57.0
 
 [node name="ChessBoard" parent="." unique_id=1526687798 instance=ExtResource("1_53q0u")]
-
-[node name="TorchLight_1" type="OmniLight3D" parent="." unique_id=1656662783]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.2, -4.5)
-light_color = Color(1, 0.48235294, 0.10980392, 1)
-light_energy = 3.5
-omni_range = 9.0
-
-[node name="TorchLight_2" type="OmniLight3D" parent="." unique_id=1397901238]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 2.2, -4.5)
-light_color = Color(1, 0.48235294, 0.10980392, 1)
-light_energy = 3.5
-omni_range = 9.0
-
-[node name="TorchLight_3" type="OmniLight3D" parent="." unique_id=1515939635]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4.5, 2.2, 4.5)
-light_color = Color(1, 0.48235294, 0.10980392, 1)
-light_energy = 3.5
-omni_range = 9.0
-
-[node name="TorchLight_4" type="OmniLight3D" parent="." unique_id=817382443]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.5, 2.2, 4.5)
-light_color = Color(1, 0.48235294, 0.10980392, 1)
-light_energy = 3.5
-omni_range = 9.0
 
 [node name="GameHUD" parent="." unique_id=1670950217 instance=ExtResource("4_3wy1v")]
 

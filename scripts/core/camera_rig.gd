@@ -11,8 +11,9 @@ extends Node3D
 @export var max_pitch_deg: float = -15.0
 
 var target_yaw: float = 0.0
-var target_pitch: float = deg_to_rad(-45.0)
-var target_zoom: float = 10.5
+var target_pitch: float = deg_to_rad(-52.0)
+var target_zoom: float = 10.15
+var showcase_time := 0.0
 
 var is_orbiting: bool = false
 var is_showcase_mode: bool = true
@@ -43,13 +44,22 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func _process(delta: float) -> void:
 	if is_showcase_mode:
-		target_yaw += delta * 0.14
-		target_pitch = deg_to_rad(-32.0)
-		target_zoom = 11.8
+		showcase_time += delta
+		target_yaw = -0.32 + sin(showcase_time * 0.28) * 0.34
+		target_pitch = deg_to_rad(-47.0)
+		target_zoom = 10.9
 	
-	rotation.y = lerp_angle(rotation.y, target_yaw, delta * 6.0)
-	pitch_pivot.rotation.x = lerp(pitch_pivot.rotation.x, target_pitch, delta * 6.0)
-	camera.position.z = lerp(camera.position.z, target_zoom, delta * 6.0)
+	var blend := 1.0 - exp(-delta * 6.0)
+	rotation.y = lerp_angle(rotation.y, target_yaw, blend)
+	pitch_pivot.rotation.x = lerpf(pitch_pivot.rotation.x, target_pitch, blend)
+	var view_size := get_viewport().get_visible_rect().size
+	var aspect := view_size.x / maxf(view_size.y, 1.0)
+	var fit := maxf(1.0, 1.55 / aspect)
+	camera.position.z = lerpf(camera.position.z, target_zoom * fit, blend)
+	var sidebar_offset := 0.92 if aspect >= 1.45 else 0.48
+	var menu_offset := -2.26 if aspect >= 1.55 else 0.0
+	camera.h_offset = lerpf(camera.h_offset, menu_offset if is_showcase_mode else sidebar_offset, blend)
+	camera.v_offset = lerpf(camera.v_offset, 0.12 if is_showcase_mode else -0.12, blend)
 
 func start_gameplay_camera() -> void:
 	is_showcase_mode = false
@@ -59,8 +69,8 @@ func reset_camera() -> void:
 	is_obsidian_side = false
 	is_top_view = false
 	target_yaw = 0.0
-	target_pitch = deg_to_rad(-45.0)
-	target_zoom = 10.5
+	target_pitch = deg_to_rad(-52.0)
+	target_zoom = 10.15
 
 func set_faction_side(faction: ChessPiece.Faction) -> void:
 	is_obsidian_side = (faction == ChessPiece.Faction.OBSIDIAN)
@@ -70,7 +80,7 @@ func toggle_top_view() -> void:
 	is_top_view = not is_top_view
 	if is_top_view:
 		target_pitch = deg_to_rad(-82.0)
-		target_zoom = 11.2
+		target_zoom = 10.0
 	else:
-		target_pitch = deg_to_rad(-45.0)
-		target_zoom = 10.5
+		target_pitch = deg_to_rad(-52.0)
+		target_zoom = 10.15

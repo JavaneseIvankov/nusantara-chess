@@ -15,7 +15,13 @@ var is_hovered: bool = false
 var visual_root: Node3D
 var overlay_material: ShaderMaterial
 var hover_tween: Tween
+var move_tween: Tween
+var motion: RefCounted
+var facing: Node3D
+var hit_area: Area3D
 
+const MINIATURES := preload("res://scripts/pieces/nusantara_miniatures.gd")
+const MOTION := preload("res://scripts/pieces/piece_motion.gd")
 const FRESNEL_SHADER: Shader = preload("res://assets/shaders/fresnel_rim_highlight.gdshader")
 
 const MODEL_PATHS := {
@@ -34,6 +40,7 @@ func setup(p_type: PieceType, p_faction: Faction, start_grid: Vector2i, world_po
 	position = world_pos
 	_init_overlay_material()
 	_build_visual()
+	_setup_hit_area()
 
 func _init_overlay_material() -> void:
 	overlay_material = ShaderMaterial.new()
@@ -86,50 +93,91 @@ func _apply_overlay_recursive(node: Node, mat: Material) -> void:
 func promote_to(new_type: PieceType) -> void:
 	type = new_type
 	_build_visual()
+	_setup_hit_area()
 
-func move_to(new_grid_pos: Vector2i, target_world_pos: Vector3) -> void:
+func move_to(new_grid_pos: Vector2i, target_world_pos: Vector3) -> Tween:
 	grid_pos = new_grid_pos
 	has_moved = true
 	set_hovered(false)
-	
-	var duration: float = 0.28
-	var tween := create_tween()
-	tween.set_parallel(true)
-	
-	tween.tween_property(self, "position:x", target_world_pos.x, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	tween.tween_property(self, "position:z", target_world_pos.z, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	
+	if move_tween and move_tween.is_valid():
+		move_tween.kill()
+
+	var origin := position
+	var travel := target_world_pos - origin
+	var distance := travel.length()
+	var home_yaw := _rest_yaw()
+	var travel_yaw := atan2(-travel.x, -travel.z)
+	var duration := clampf(0.32 + distance * 0.069, 0.38, 0.81)
 	if type == PieceType.KNIGHT:
-		var arc_tween := create_tween()
-		arc_tween.tween_property(self, "position:y", target_world_pos.y + 0.65, duration * 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-		arc_tween.tween_property(self, "position:y", target_world_pos.y, duration * 0.5).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
-	else:
-		tween.tween_property(self, "position:y", target_world_pos.y, duration)
+		duration = 0.65
+	var moving_role := type
+	AudioManager.play_move(moving_role)
+	move_tween = create_tween()
+	move_tween.tween_method(func(t: float) -> void:
+		var progress := smoothstep(0.0, 1.0, t)
+		position = origin.lerp(target_world_pos, progress)
+		var turn_weight := smoothstep(0.0, 0.22, t) * (1.0 - smoothstep(0.74, 1.0, t))
+		facing.rotation.y = lerp_angle(home_yaw, travel_yaw, turn_weight)
+		if moving_role == PieceType.KNIGHT:
+			position.y += sin(t * PI) * 0.57
+		motion.stride(moving_role, t, distance)
+	, 0.0, 1.0, duration)
+	move_tween.tween_callback(func():
+		motion.reset()
+		AudioManager.play_landing(moving_role)
+	)
+	return move_tween
+
+
+func _setup_hit_area() -> void:
+	if hit_area == null:
+		hit_area = Area3D.new()
+		hit_area.collision_layer = 2
+		hit_area.collision_mask = 0
+		hit_area.monitoring = false
+		hit_area.monitorable = false
+		hit_area.set_meta("piece", self)
+		hit_area.add_child(CollisionShape3D.new())
+		add_child(hit_area)
+	var collider := hit_area.get_child(0) as CollisionShape3D
+	var shape := CapsuleShape3D.new()
+	shape.height = [0.87, 1.12, 1.18, 1.23, 1.39, 1.53][type]
+	shape.radius = 0.19 if type == PieceType.PAWN else 0.24
+	collider.shape = shape
+	collider.position.y = shape.height * 0.5 + 0.035
+
+
+func _rest_yaw() -> float:
+	return -0.48 if faction == Faction.GOLD else PI - 0.48
+
 
 func _build_visual() -> void:
-	if visual_root != null:
+	if hover_tween and hover_tween.is_valid():
+		hover_tween.kill()
+	if visual_root:
+		remove_child(visual_root)
 		visual_root.queue_free()
-	
+	is_hovered = false
 	visual_root = Node3D.new()
 	visual_root.name = "VisualRoot"
 	add_child(visual_root)
-	
-	if faction == Faction.OBSIDIAN:
-		visual_root.rotation.y = PI
-	
-	var mat := _create_faction_material()
-	var model_path: String = MODEL_PATHS.get(type, "")
-	
-	if model_path != "" and ResourceLoader.exists(model_path):
-		var packed_scene: PackedScene = load(model_path)
-		if packed_scene != null:
-			var model_instance := packed_scene.instantiate()
-			visual_root.add_child(model_instance)
+	facing = Node3D.new()
+	facing.rotation.y = _rest_yaw()
+	visual_root.add_child(facing)
+
+	var model_path: String = MODEL_PATHS[type]
+	var model: Node3D
+	if ResourceLoader.exists(model_path):
+		var packed_scene := load(model_path) as PackedScene
+		if packed_scene:
+			model = packed_scene.instantiate()
 			if override_faction_material:
-				_apply_material_recursive(model_instance, mat)
-			return
-	
-	_build_placeholder_mesh(visual_root, mat)
+				_apply_material_recursive(model, _create_faction_material())
+	if model == null:
+		model = MINIATURES.instantiate(type, faction)
+	facing.add_child(model)
+	motion = MOTION.new(model)
+
 
 func _create_faction_material() -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
@@ -148,102 +196,3 @@ func _apply_material_recursive(node: Node, mat: StandardMaterial3D) -> void:
 		node.material_override = mat
 	for child in node.get_children():
 		_apply_material_recursive(child, mat)
-
-func _build_placeholder_mesh(parent: Node3D, mat: StandardMaterial3D) -> void:
-	var base := MeshInstance3D.new()
-	var base_cyl := CylinderMesh.new()
-	base_cyl.top_radius = 0.28
-	base_cyl.bottom_radius = 0.34
-	base_cyl.height = 0.14
-	base.mesh = base_cyl
-	base.material_override = mat
-	base.position.y = 0.07
-	parent.add_child(base)
-	
-	var body := MeshInstance3D.new()
-	var head := MeshInstance3D.new()
-	
-	match type:
-		PieceType.PAWN:
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.14
-			cyl.bottom_radius = 0.22
-			cyl.height = 0.45
-			body.mesh = cyl
-			body.position.y = 0.36
-			
-			var sph := SphereMesh.new()
-			sph.radius = 0.16
-			head.mesh = sph
-			head.position.y = 0.65
-			
-		PieceType.ROOK:
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.22
-			cyl.bottom_radius = 0.25
-			cyl.height = 0.65
-			body.mesh = cyl
-			body.position.y = 0.46
-			
-			var crown := CylinderMesh.new()
-			crown.top_radius = 0.26
-			crown.bottom_radius = 0.26
-			crown.height = 0.16
-			head.mesh = crown
-			head.position.y = 0.85
-			
-		PieceType.KNIGHT:
-			var box := BoxMesh.new()
-			box.size = Vector3(0.28, 0.62, 0.36)
-			body.mesh = box
-			body.position.y = 0.44
-			
-			var snout := BoxMesh.new()
-			snout.size = Vector3(0.22, 0.22, 0.42)
-			head.mesh = snout
-			head.position = Vector3(0, 0.78, -0.08)
-			
-		PieceType.BISHOP:
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.12
-			cyl.bottom_radius = 0.24
-			cyl.height = 0.75
-			body.mesh = cyl
-			body.position.y = 0.51
-			
-			var mitre := SphereMesh.new()
-			mitre.radius = 0.16
-			mitre.height = 0.38
-			head.mesh = mitre
-			head.position.y = 0.96
-			
-		PieceType.QUEEN:
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.15
-			cyl.bottom_radius = 0.26
-			cyl.height = 0.90
-			body.mesh = cyl
-			body.position.y = 0.59
-			
-			var orb := SphereMesh.new()
-			orb.radius = 0.18
-			head.mesh = orb
-			head.position.y = 1.12
-			
-		PieceType.KING:
-			var cyl := CylinderMesh.new()
-			cyl.top_radius = 0.18
-			cyl.bottom_radius = 0.28
-			cyl.height = 1.05
-			body.mesh = cyl
-			body.position.y = 0.66
-			
-			var cross := BoxMesh.new()
-			cross.size = Vector3(0.22, 0.24, 0.22)
-			head.mesh = cross
-			head.position.y = 1.28
-	
-	body.material_override = mat
-	head.material_override = mat
-	parent.add_child(body)
-	parent.add_child(head)

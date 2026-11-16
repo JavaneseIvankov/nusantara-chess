@@ -3,14 +3,16 @@ extends Node3D
 signal turn_changed(new_faction: ChessPiece.Faction)
 signal check_state_changed(is_in_check: bool)
 signal piece_captured(capturer_faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType)
+signal capture_replay_requested(attacker: ChessPiece.PieceType, defender: ChessPiece.PieceType, faction: ChessPiece.Faction)
 signal move_recorded(faction: ChessPiece.Faction, notation: String)
+signal selected_role_changed(role: int)
 signal promotion_required
 signal game_over(winner_faction: ChessPiece.Faction, reason: String)
 
 @export var tile_size: float = 1.0
 @export var tile_height: float = 0.2
-@export var light_color: Color = Color(0.87, 0.77, 0.60)
-@export var dark_color: Color = Color(0.28, 0.16, 0.09)
+@export var light_color: Color = Color("#e2cda6")
+@export var dark_color: Color = Color("#516161")
 
 const PIECE_SCENE: PackedScene = preload("res://scenes/pieces/chess_piece.tscn")
 const BOARD_TILE_SHADER: Shader = preload("res://assets/shaders/board_tile.gdshader")
@@ -27,6 +29,7 @@ var current_turn: ChessPiece.Faction = ChessPiece.Faction.GOLD
 var is_game_over: bool = false
 var is_in_menu: bool = true
 var awaiting_promotion: bool = false
+var move_animation: Tween
 
 var selected_grid: Vector2i = Vector2i(-1, -1)
 var selected_piece: ChessPiece = null
@@ -54,20 +57,20 @@ func _setup_materials() -> void:
 	light_material = ShaderMaterial.new()
 	light_material.shader = BOARD_TILE_SHADER
 	light_material.set_shader_parameter("base_color", light_color)
-	light_material.set_shader_parameter("vein_color", Color(0.68, 0.56, 0.39))
+	light_material.set_shader_parameter("vein_color", Color("#b6a385"))
 	light_material.set_shader_parameter("is_wood_grain", false)
 	light_material.set_shader_parameter("pattern_scale", 3.2)
-	light_material.set_shader_parameter("bump_strength", 0.85)
-	light_material.set_shader_parameter("base_roughness", 0.38)
+	light_material.set_shader_parameter("bump_strength", 0.36)
+	light_material.set_shader_parameter("base_roughness", 0.57)
 	
 	dark_material = ShaderMaterial.new()
 	dark_material.shader = BOARD_TILE_SHADER
 	dark_material.set_shader_parameter("base_color", dark_color)
-	dark_material.set_shader_parameter("vein_color", Color(0.14, 0.07, 0.03))
+	dark_material.set_shader_parameter("vein_color", Color("#343f43"))
 	dark_material.set_shader_parameter("is_wood_grain", true)
 	dark_material.set_shader_parameter("pattern_scale", 4.5)
-	dark_material.set_shader_parameter("bump_strength", 1.25)
-	dark_material.set_shader_parameter("base_roughness", 0.48)
+	dark_material.set_shader_parameter("bump_strength", 0.3)
+	dark_material.set_shader_parameter("base_roughness", 0.63)
 
 func _generate_board() -> void:
 	var offset: float = (8.0 * tile_size) / 2.0 - (tile_size / 2.0)
@@ -174,7 +177,7 @@ func _spawn_piece(p_type: ChessPiece.PieceType, p_faction: ChessPiece.Faction, g
 	board_state[grid_pos] = piece
 
 func _unhandled_input(event: InputEvent) -> void:
-	if is_game_over or is_in_menu or awaiting_promotion:
+	if is_game_over or is_in_menu or awaiting_promotion or (move_animation and move_animation.is_running()):
 		_clear_hover()
 		return
 	
@@ -183,41 +186,33 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
 		_raycast_board(event.position)
 
-func _raycast_board(mouse_pos: Vector2) -> void:
+func _grid_under_cursor(mouse_pos: Vector2) -> Vector2i:
 	var camera := get_viewport().get_camera_3d()
 	if not camera:
-		return
-	
-	var ray_origin := camera.project_ray_origin(mouse_pos)
-	var ray_end := ray_origin + camera.project_ray_normal(mouse_pos) * 100.0
-	
-	var space_state := get_world_3d().direct_space_state
-	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
-	var result := space_state.intersect_ray(query)
-	
-	if result and result.collider.has_meta("grid_pos"):
-		var clicked_grid: Vector2i = result.collider.get_meta("grid_pos")
-		_handle_tile_click(clicked_grid)
+		return Vector2i(-1, -1)
+	var origin := camera.project_ray_origin(mouse_pos)
+	var ray_end := origin + camera.project_ray_normal(mouse_pos) * 100.0
+	var query := PhysicsRayQueryParameters3D.create(origin, ray_end)
+	query.collide_with_areas = true
+	var result := get_world_3d().direct_space_state.intersect_ray(query)
+	if result:
+		var hit: Node = result.collider
+		if hit.has_meta("piece"):
+			var piece: ChessPiece = hit.get_meta("piece")
+			return piece.grid_pos
+		return hit.get_meta("grid_pos", Vector2i(-1, -1))
+	return Vector2i(-1, -1)
+
+func _raycast_board(mouse_pos: Vector2) -> void:
+	var grid := _grid_under_cursor(mouse_pos)
+	if _is_inside_board(grid):
+		_handle_tile_click(grid)
 
 func _raycast_hover(mouse_pos: Vector2) -> void:
-	var camera := get_viewport().get_camera_3d()
-	if not camera:
-		return
-	
-	var ray_origin := camera.project_ray_origin(mouse_pos)
-	var ray_end := ray_origin + camera.project_ray_normal(mouse_pos) * 100.0
-	
-	var space_state := get_world_3d().direct_space_state
-	var query := PhysicsRayQueryParameters3D.create(ray_origin, ray_end)
-	var result := space_state.intersect_ray(query)
-	
-	var new_hover: ChessPiece = null
-	if result and result.collider.has_meta("grid_pos"):
-		var hover_grid: Vector2i = result.collider.get_meta("grid_pos")
-		var p: ChessPiece = board_state.get(hover_grid, null)
-		if p != null and p.faction == current_turn:
-			new_hover = p
-	
+	var new_hover: ChessPiece = board_state.get(_grid_under_cursor(mouse_pos))
+	if new_hover != null and new_hover.faction != current_turn:
+		new_hover = null
+
 	if new_hover == hovered_piece:
 		return
 	
@@ -265,6 +260,7 @@ func _select_piece(grid_pos: Vector2i, piece: ChessPiece) -> void:
 	
 	selected_grid = grid_pos
 	selected_piece = piece
+	selected_role_changed.emit(piece.type)
 	if selected_piece != checked_king_piece:
 		selected_piece.set_highlight_state(ChessPiece.HighlightState.SELECTED)
 	
@@ -283,6 +279,7 @@ func _clear_selection() -> void:
 	
 	selected_grid = Vector2i(-1, -1)
 	selected_piece = null
+	selected_role_changed.emit(-1)
 	valid_moves.clear()
 	selection_highlight.visible = false
 	_clear_valid_move_markers()
@@ -331,12 +328,12 @@ func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> 
 		var ep_pawn: ChessPiece = board_state.get(ep_pawn_pos, null)
 		if ep_pawn != null:
 			was_capture = true
-			piece_captured.emit(current_turn, ep_pawn.type)
+			_notify_capture(moving_piece, ep_pawn)
 			board_state.erase(ep_pawn_pos)
 			ep_pawn.queue_free()
 			custom_notation = "%s×%s e.p." % [_grid_to_algebraic(origin_grid), _grid_to_algebraic(target_grid)]
 	elif was_capture:
-		piece_captured.emit(current_turn, captured_piece.type)
+		_notify_capture(moving_piece, captured_piece)
 		captured_piece.queue_free()
 	
 	# 2. Cek Langkah Rokade (King berpindah 2 petak secara horizontal)
@@ -370,7 +367,7 @@ func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> 
 	last_move_to_highlight.position = grid_to_world(target_grid)
 	last_move_to_highlight.visible = true
 	
-	moving_piece.move_to(target_grid, grid_to_world(target_grid))
+	move_animation = moving_piece.move_to(target_grid, grid_to_world(target_grid))
 	_clear_selection()
 	
 	# 3. Cek Promosi Pion Interaktif
@@ -389,8 +386,12 @@ func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> 
 	move_recorded.emit(current_turn, notation)
 	_switch_turn()
 
+func _notify_capture(attacker: ChessPiece, defender: ChessPiece) -> void:
+	piece_captured.emit(attacker.faction, defender.type)
+	capture_replay_requested.emit(attacker.type, defender.type, attacker.faction)
+
 func complete_pawn_promotion(chosen_type: ChessPiece.PieceType) -> void:
-	if not awaiting_promotion or pending_promotion_pawn == null:
+	if is_game_over or not awaiting_promotion or pending_promotion_pawn == null:
 		return
 	
 	pending_promotion_pawn.promote_to(chosen_type)
