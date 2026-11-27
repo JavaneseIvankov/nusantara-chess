@@ -48,7 +48,7 @@ func _ready() -> void:
 
 func show_home() -> void:
 	show()
-	_show_view(_home, _home.find_child("LocalGame", true, false) as Control)
+	_show_view(_home, _solo_button)
 
 
 func _build_home(parent: Control) -> VBoxContainer:
@@ -64,7 +64,6 @@ func _build_home(parent: Control) -> VBoxContainer:
 	_solo_button = TakhtaTheme.button("Lawan Bot", func(): _show_view(_setup, _faction_options), true)
 	_solo_button.name = "VersusBot"
 	page.add_child(_solo_button)
-	_solo_button.hide()
 	var local := TakhtaTheme.button("Dua Pemain Lokal", func(): _start(false))
 	local.name = "LocalGame"
 	page.add_child(local)
@@ -76,7 +75,7 @@ func _build_home(parent: Control) -> VBoxContainer:
 	for button in [_guide_button, quit]:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		secondary.add_child(button)
-	TakhtaTheme.link_focus([local, _guide_button, quit])
+	TakhtaTheme.link_focus([_solo_button, local, _guide_button, quit])
 	return page
 
 
