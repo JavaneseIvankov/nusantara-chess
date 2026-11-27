@@ -7,6 +7,11 @@ extends Node3D
 
 var auto_flip_camera: bool = true
 
+func _enter_tree() -> void:
+	var shared := TakhtaTheme.make()
+	$MainMenu.theme = shared
+	$GameHUD.theme = shared
+
 func _ready() -> void:
 	# Sembunyikan HUD permainan saat berada di Menu Utama
 	game_hud.visible = false
@@ -34,7 +39,7 @@ func _ready() -> void:
 	game_hud.restart_requested.connect(_on_restart_game)
 	game_hud.forfeit_requested.connect(_on_forfeit_game)
 
-func _on_start_game() -> void:
+func _on_start_game(_solo: bool, _faction: int, _difficulty: int) -> void:
 	chess_board.is_in_menu = false
 	if camera_rig.has_method("start_gameplay_camera"):
 		camera_rig.start_gameplay_camera()
