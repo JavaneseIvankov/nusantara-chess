@@ -61,6 +61,17 @@ func _ready() -> void:
 	_build_stage()
 
 
+func reset() -> void:
+	_pending.clear()
+	_view.render_target_update_mode = SubViewport.UPDATE_DISABLED
+	set_process(false)
+	hide()
+	if _actors:
+		_stage.remove_child(_actors)
+		_actors.queue_free()
+		_actors = null
+
+
 func play(attacker: int, defender: int, faction: int) -> void:
 	if is_processing():
 		_pending.append(Vector3i(attacker, defender, faction))
