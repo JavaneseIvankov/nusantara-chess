@@ -49,11 +49,7 @@ func _on_quit_game() -> void:
 func _on_turn_changed(new_faction: ChessPiece.Faction) -> void:
 	game_hud.update_turn(new_faction)
 	if auto_flip_camera and not chess_board.is_game_over:
-		var animation: Tween = chess_board.move_animation
-		if animation and animation.is_running():
-			await animation.finished
-		if auto_flip_camera and not chess_board.is_game_over and chess_board.current_turn == new_faction:
-			camera_rig.set_faction_side(new_faction)
+		camera_rig.set_faction_side(new_faction)
 
 func _on_auto_flip_toggled(enabled: bool) -> void:
 	auto_flip_camera = enabled
