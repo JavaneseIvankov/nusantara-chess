@@ -1,13 +1,14 @@
+class_name ChessBoard
 extends Node3D
 
-signal turn_changed(new_faction: ChessPiece.Faction)
+signal turn_ready(new_faction: ChessPiece.Faction)
 signal check_state_changed(is_in_check: bool)
 signal piece_captured(capturer_faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType)
 signal capture_replay_requested(attacker: ChessPiece.PieceType, defender: ChessPiece.PieceType, faction: ChessPiece.Faction)
 signal move_recorded(faction: ChessPiece.Faction, notation: String)
 signal selected_role_changed(role: int)
 signal promotion_required
-signal game_over(winner_faction: ChessPiece.Faction, reason: String)
+signal game_over(winner_faction: int, reason: String)
 
 @export var tile_size: float = 1.0
 @export var tile_height: float = 0.2
@@ -29,7 +30,17 @@ var current_turn: ChessPiece.Faction = ChessPiece.Faction.GOLD
 var is_game_over: bool = false
 var is_in_menu: bool = true
 var awaiting_promotion: bool = false
-var move_animation: Tween
+var human_input_enabled := true
+var resolving_move := false
+var uci_history := PackedStringArray()
+
+const PROMOTION_TYPES := {
+	"q": ChessPiece.PieceType.QUEEN,
+	"r": ChessPiece.PieceType.ROOK,
+	"b": ChessPiece.PieceType.BISHOP,
+	"n": ChessPiece.PieceType.KNIGHT,
+}
+const DRAW := -1
 
 var selected_grid: Vector2i = Vector2i(-1, -1)
 var selected_piece: ChessPiece = null
@@ -177,7 +188,7 @@ func _spawn_piece(p_type: ChessPiece.PieceType, p_faction: ChessPiece.Faction, g
 	board_state[grid_pos] = piece
 
 func _unhandled_input(event: InputEvent) -> void:
-	if is_game_over or is_in_menu or awaiting_promotion or (move_animation and move_animation.is_running()):
+	if is_game_over or is_in_menu or awaiting_promotion or resolving_move or not human_input_enabled:
 		_clear_hover()
 		return
 	
@@ -248,7 +259,7 @@ func _handle_tile_click(clicked_grid: Vector2i) -> void:
 			return
 		
 		if clicked_grid in valid_moves:
-			_move_selected_piece(clicked_grid, clicked_piece)
+			try_move(selected_grid, clicked_grid)
 		return
 	
 	if clicked_piece != null and clicked_piece.faction == current_turn:
@@ -316,91 +327,127 @@ func _clear_valid_move_markers() -> void:
 	for child in valid_moves_container.get_children():
 		child.queue_free()
 
-func _move_selected_piece(target_grid: Vector2i, captured_piece: ChessPiece) -> void:
-	var origin_grid := selected_grid
-	var moving_piece := selected_piece
-	var was_capture: bool = captured_piece != null
-	var custom_notation: String = ""
-	
-	# 1. Cek Penangkapan En Passant
-	if moving_piece.type == ChessPiece.PieceType.PAWN and target_grid == en_passant_target and captured_piece == null:
-		var ep_pawn_pos := Vector2i(target_grid.x, origin_grid.y)
-		var ep_pawn: ChessPiece = board_state.get(ep_pawn_pos, null)
-		if ep_pawn != null:
-			was_capture = true
-			_notify_capture(moving_piece, ep_pawn)
-			board_state.erase(ep_pawn_pos)
-			ep_pawn.queue_free()
-			custom_notation = "%s×%s e.p." % [_grid_to_algebraic(origin_grid), _grid_to_algebraic(target_grid)]
-	elif was_capture:
-		_notify_capture(moving_piece, captured_piece)
-		captured_piece.queue_free()
-	
-	# 2. Cek Langkah Rokade (King berpindah 2 petak secara horizontal)
-	if moving_piece.type == ChessPiece.PieceType.KING and abs(target_grid.x - origin_grid.x) == 2:
-		var is_kingside: bool = target_grid.x > origin_grid.x
-		var rook_from_x: int = 7 if is_kingside else 0
-		var rook_to_x: int = 5 if is_kingside else 3
-		var rook_pos := Vector2i(rook_from_x, origin_grid.y)
-		var rook_dest := Vector2i(rook_to_x, origin_grid.y)
-		var rook: ChessPiece = board_state.get(rook_pos, null)
-		if rook != null:
-			board_state.erase(rook_pos)
-			board_state[rook_dest] = rook
-			rook.move_to(rook_dest, grid_to_world(rook_dest))
-		custom_notation = "O-O" if is_kingside else "O-O-O"
-	
-	# Perbarui status board_state untuk bidak utama
-	board_state.erase(origin_grid)
-	board_state[target_grid] = moving_piece
-	
-	# Perbarui target En Passant untuk giliran berikutnya
-	if moving_piece.type == ChessPiece.PieceType.PAWN and abs(target_grid.y - origin_grid.y) == 2:
-		var mid_y: int = (origin_grid.y + target_grid.y) / 2
-		en_passant_target = Vector2i(origin_grid.x, mid_y)
-	else:
-		en_passant_target = Vector2i(-1, -1)
-	
-	# Sorot jejak petak asal & tujuan
-	last_move_from_highlight.position = grid_to_world(origin_grid)
-	last_move_from_highlight.visible = true
-	last_move_to_highlight.position = grid_to_world(target_grid)
-	last_move_to_highlight.visible = true
-	
-	move_animation = moving_piece.move_to(target_grid, grid_to_world(target_grid))
+func try_uci_move(move: String) -> bool:
+	if move.length() != 4 and move.length() != 5:
+		return false
+	var from := _algebraic_to_grid(move.substr(0, 2))
+	var to := _algebraic_to_grid(move.substr(2, 2))
+	var promotion: int = PROMOTION_TYPES.get(move.substr(4, 1), -1)
+	if not _is_inside_board(from) or not _is_inside_board(to):
+		return false
+	var piece: ChessPiece = board_state.get(from)
+	if piece == null or _is_promotion(piece, to) != (promotion != -1):
+		return false
+	if move.length() == 5 and promotion == -1:
+		return false
+	return try_move(from, to, promotion)
+
+
+func try_move(from: Vector2i, to: Vector2i, promotion: int = -1) -> bool:
+	if is_in_menu or is_game_over or awaiting_promotion or resolving_move:
+		return false
+	var piece: ChessPiece = board_state.get(from)
+	if not piece or piece.faction != current_turn or to not in _get_legal_moves(piece):
+		return false
+	if promotion != -1 and (promotion not in PROMOTION_TYPES.values() or not _is_promotion(piece, to)):
+		return false
+	_apply_move(piece, from, to, promotion)
+	return true
+
+
+func _apply_move(piece: ChessPiece, from: Vector2i, to: Vector2i, promotion: int) -> void:
+	resolving_move = true
+	_clear_hover()
 	_clear_selection()
-	
-	# 3. Cek Promosi Pion Interaktif
-	if moving_piece.type == ChessPiece.PieceType.PAWN:
-		var promotion_row: int = 0 if moving_piece.faction == ChessPiece.Faction.GOLD else 7
-		if target_grid.y == promotion_row:
-			awaiting_promotion = true
-			pending_promotion_pawn = moving_piece
-			pending_promotion_from = origin_grid
-			pending_promotion_to = target_grid
-			pending_promotion_capture = was_capture
-			promotion_required.emit()
-			return
-	
-	var notation := custom_notation if custom_notation != "" else _format_move_notation(moving_piece.type, origin_grid, target_grid, was_capture, ChessPiece.PieceType.PAWN)
+	var captured: ChessPiece = board_state.get(to)
+	var capture_square := to
+	var notation := ""
+	if piece.type == ChessPiece.PieceType.PAWN and to == en_passant_target and captured == null:
+		capture_square = Vector2i(to.x, from.y)
+		captured = board_state.get(capture_square)
+		notation = "%s×%s e.p." % [_grid_to_algebraic(from), _grid_to_algebraic(to)]
+
+	var was_capture := captured != null
+	if captured:
+		_notify_capture(piece, captured)
+		board_state.erase(capture_square)
+		if captured == checked_king_piece:
+			checked_king_piece = null
+		captured.queue_free()
+
+	var rook_animation: Tween
+	if piece.type == ChessPiece.PieceType.KING and absi(to.x - from.x) == 2:
+		var kingside := to.x > from.x
+		var rook_from := Vector2i(7 if kingside else 0, from.y)
+		var rook_to := Vector2i(5 if kingside else 3, from.y)
+		var rook: ChessPiece = board_state[rook_from]
+		board_state.erase(rook_from)
+		board_state[rook_to] = rook
+		rook_animation = rook.move_to(rook_to, grid_to_world(rook_to))
+		notation = "O-O" if kingside else "O-O-O"
+
+	board_state.erase(from)
+	board_state[to] = piece
+	en_passant_target = Vector2i(-1, -1)
+	if piece.type == ChessPiece.PieceType.PAWN and absi(to.y - from.y) == 2:
+		en_passant_target = Vector2i(from.x, (from.y + to.y) >> 1)
+
+	last_move_from_highlight.position = grid_to_world(from)
+	last_move_from_highlight.show()
+	last_move_to_highlight.position = grid_to_world(to)
+	last_move_to_highlight.show()
+
+	var animation := piece.move_to(to, grid_to_world(to))
+	await animation.finished
+	if rook_animation and rook_animation.is_running():
+		await rook_animation.finished
+	resolving_move = false
+	if is_game_over or is_queued_for_deletion():
+		return
+	if _is_promotion(piece, to) and promotion == -1:
+		awaiting_promotion = true
+		pending_promotion_pawn = piece
+		pending_promotion_from = from
+		pending_promotion_to = to
+		pending_promotion_capture = was_capture
+		promotion_required.emit()
+		return
+	_finish_move(piece, from, to, was_capture, promotion, notation)
+
+
+func _is_promotion(piece: ChessPiece, to: Vector2i) -> bool:
+	return piece.type == ChessPiece.PieceType.PAWN and to.y == (0 if piece.faction == ChessPiece.Faction.GOLD else 7)
+
+
+func _finish_move(piece: ChessPiece, from: Vector2i, to: Vector2i, capture: bool, promotion: int, notation: String = "") -> void:
+	if notation.is_empty():
+		var notation_promotion := ChessPiece.PieceType.PAWN if promotion == -1 else promotion as ChessPiece.PieceType
+		notation = _format_move_notation(piece.type, from, to, capture, notation_promotion)
+	var suffix := ""
+	if promotion != -1:
+		suffix = PROMOTION_TYPES.find_key(promotion)
+		piece.promote_to(promotion as ChessPiece.PieceType)
+	uci_history.append(_grid_to_algebraic(from) + _grid_to_algebraic(to) + suffix)
 	move_recorded.emit(current_turn, notation)
 	_switch_turn()
+
+
+func _algebraic_to_grid(square: String) -> Vector2i:
+	return Vector2i("abcdefgh".find(square[0]), 7 - "12345678".find(square[1]))
+
 
 func _notify_capture(attacker: ChessPiece, defender: ChessPiece) -> void:
 	piece_captured.emit(attacker.faction, defender.type)
 	capture_replay_requested.emit(attacker.type, defender.type, attacker.faction)
 
 func complete_pawn_promotion(chosen_type: ChessPiece.PieceType) -> void:
-	if is_game_over or not awaiting_promotion or pending_promotion_pawn == null:
+	if is_game_over or not awaiting_promotion or chosen_type not in PROMOTION_TYPES.values():
 		return
-	
-	pending_promotion_pawn.promote_to(chosen_type)
-	var notation := _format_move_notation(ChessPiece.PieceType.PAWN, pending_promotion_from, pending_promotion_to, pending_promotion_capture, chosen_type)
-	move_recorded.emit(current_turn, notation)
-	
+	var pawn := pending_promotion_pawn
 	awaiting_promotion = false
 	pending_promotion_pawn = null
-	_switch_turn()
+	_finish_move(pawn, pending_promotion_from, pending_promotion_to, pending_promotion_capture, chosen_type)
+
 
 func _format_move_notation(p_type: ChessPiece.PieceType, from_pos: Vector2i, to_pos: Vector2i, is_capture: bool, promo_type: ChessPiece.PieceType) -> String:
 	var prefix := _piece_symbol(p_type)
@@ -410,11 +457,11 @@ func _format_move_notation(p_type: ChessPiece.PieceType, from_pos: Vector2i, to_
 
 func _piece_symbol(p_type: ChessPiece.PieceType) -> String:
 	match p_type:
-		ChessPiece.PieceType.KING: return "♔"
-		ChessPiece.PieceType.QUEEN: return "♕"
-		ChessPiece.PieceType.ROOK: return "♖"
-		ChessPiece.PieceType.BISHOP: return "♗"
-		ChessPiece.PieceType.KNIGHT: return "♘"
+		ChessPiece.PieceType.KING: return "K"
+		ChessPiece.PieceType.QUEEN: return "Q"
+		ChessPiece.PieceType.ROOK: return "R"
+		ChessPiece.PieceType.BISHOP: return "B"
+		ChessPiece.PieceType.KNIGHT: return "N"
 	return ""
 
 func _grid_to_algebraic(pos: Vector2i) -> String:
@@ -424,7 +471,6 @@ func _grid_to_algebraic(pos: Vector2i) -> String:
 
 func _switch_turn() -> void:
 	current_turn = ChessPiece.Faction.OBSIDIAN if current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
-	turn_changed.emit(current_turn)
 	
 	var in_check: bool = _is_king_in_check(current_turn, board_state)
 	
@@ -446,15 +492,22 @@ func _switch_turn() -> void:
 	var has_any_legal_move: bool = _faction_has_legal_moves(current_turn)
 	
 	if not has_any_legal_move:
-		is_game_over = true
-		var winner := ChessPiece.Faction.OBSIDIAN if current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
-		if in_check:
-			game_over.emit(winner, "SKAKMAT!")
-		else:
-			game_over.emit(winner, "SERI (STALEMATE)!")
+		check_state_changed.emit(in_check)
+		end_match(1 - current_turn if in_check else DRAW, "Skakmat" if in_check else "Seri · Pat")
 		return
-	
+
 	check_state_changed.emit(in_check)
+	turn_ready.emit(current_turn)
+
+
+func end_match(winner: int, reason: String) -> void:
+	if is_game_over:
+		return
+	is_game_over = true
+	awaiting_promotion = false
+	_clear_hover()
+	_clear_selection()
+	game_over.emit(winner, reason)
 
 func _find_king_pos(faction: ChessPiece.Faction, state: Dictionary) -> Vector2i:
 	for pos in state.keys():
@@ -471,6 +524,9 @@ func _get_legal_moves(piece: ChessPiece) -> Array[Vector2i]:
 	var legal_moves: Array[Vector2i] = []
 	
 	for target_pos in pseudo_moves:
+		var target: ChessPiece = board_state.get(target_pos)
+		if target and target.type == ChessPiece.PieceType.KING:
+			continue
 		if _is_move_safe_for_king(piece, target_pos):
 			legal_moves.append(target_pos)
 	
@@ -484,6 +540,12 @@ func _is_move_safe_for_king(piece: ChessPiece, target_pos: Vector2i) -> bool:
 	if piece.type == ChessPiece.PieceType.PAWN and target_pos == en_passant_target and not sim_state.has(target_pos):
 		sim_state.erase(Vector2i(target_pos.x, piece.grid_pos.y))
 	
+	if piece.type == ChessPiece.PieceType.KING and absi(target_pos.x - piece.grid_pos.x) == 2:
+		var kingside := target_pos.x > piece.grid_pos.x
+		var rook_from := Vector2i(7 if kingside else 0, target_pos.y)
+		var rook_to := Vector2i(5 if kingside else 3, target_pos.y)
+		sim_state[rook_to] = sim_state[rook_from]
+		sim_state.erase(rook_from)
 	sim_state[target_pos] = piece
 	return not _is_king_in_check(piece.faction, sim_state, piece, target_pos)
 
@@ -574,18 +636,19 @@ func _get_pseudo_legal_moves(piece: ChessPiece, pos: Vector2i, state: Dictionary
 						moves.append(target_pos)
 			
 			# Rokade (Kingside & Queenside)
-			if include_castling and not piece.has_moved and not _is_king_in_check(piece.faction, state):
+			var home_row := 7 if piece.faction == ChessPiece.Faction.GOLD else 0
+			if include_castling and pos == Vector2i(4, home_row) and not piece.has_moved and not _is_king_in_check(piece.faction, state):
 				var row: int = pos.y
 				# Kingside (Benteng kolom 7)
 				var k_rook: ChessPiece = state.get(Vector2i(7, row), null)
-				if k_rook != null and k_rook.type == ChessPiece.PieceType.ROOK and not k_rook.has_moved:
+				if k_rook != null and k_rook.faction == piece.faction and k_rook.type == ChessPiece.PieceType.ROOK and not k_rook.has_moved:
 					if not state.has(Vector2i(5, row)) and not state.has(Vector2i(6, row)):
 						if _is_move_safe_for_king(piece, Vector2i(5, row)) and _is_move_safe_for_king(piece, Vector2i(6, row)):
 							moves.append(Vector2i(6, row))
 				
 				# Queenside (Benteng kolom 0)
 				var q_rook: ChessPiece = state.get(Vector2i(0, row), null)
-				if q_rook != null and q_rook.type == ChessPiece.PieceType.ROOK and not q_rook.has_moved:
+				if q_rook != null and q_rook.faction == piece.faction and q_rook.type == ChessPiece.PieceType.ROOK and not q_rook.has_moved:
 					if not state.has(Vector2i(1, row)) and not state.has(Vector2i(2, row)) and not state.has(Vector2i(3, row)):
 						if _is_move_safe_for_king(piece, Vector2i(3, row)) and _is_move_safe_for_king(piece, Vector2i(2, row)):
 							moves.append(Vector2i(2, row))

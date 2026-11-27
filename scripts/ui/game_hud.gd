@@ -6,426 +6,374 @@ signal auto_flip_toggled(enabled: bool)
 signal camera_top_view_requested
 signal restart_requested
 signal forfeit_requested
+signal menu_requested
+signal retry_requested
 signal promotion_piece_selected(chosen_type: ChessPiece.PieceType)
-
+signal layout_changed(compact: bool)
 
 const MINIATURES := preload("res://scripts/pieces/nusantara_miniatures.gd")
 const REPLAY := preload("res://scripts/ui/capture_replay.gd")
+const DUEL := preload("res://assets/ui/art/duel.png")
+const WARRIOR := preload("res://assets/ui/art/prajurit.png")
+const PIECE_NAMES := ["Pion", "Benteng", "Kuda", "Gajah", "Ratu", "Raja"]
+const PIECE_ICONS := ["♟", "♜", "♞", "♝", "♛", "♚"]
 
-var capture_replay: PanelContainer
-var turn_label: Label
-var role_label: Label
-var game_over_panel: PanelContainer
-var winner_label: Label
-var promotion_panel: PanelContainer
+var _status: PanelContainer
+var _info: PanelContainer
+var _controls: HBoxContainer
+var _replay_host: MarginContainer
+var _replay: PanelContainer
+var _details: Button
+var _auto_flip: Button
+var _forfeit: Button
+var _turn_text: Label
+var _status_art: TextureRect
+var _role: Label
+var _check: Label
+var _context: Label
+var _history: RichTextLabel
+var _captures: Array[HBoxContainer] = []
+var _captured := [[], []]
+var _icons: Array[Texture2D] = []
+var _modal: ColorRect
+var _modal_body: VBoxContainer
+var _modal_buttons: HFlowContainer
+var _control_buttons: Array[Control] = []
+var _previous_focus: Control
+var _solo := false
+var _human_faction := 0
+var _auto := true
+var _compact := false
+var _details_open := false
+var _moves := PackedStringArray()
 
-# UI Tawanan Materi
-var gold_captured_label: Label
-var obsidian_captured_label: Label
-var gold_captures: Array[ChessPiece.PieceType] = []
-var obsidian_captures: Array[ChessPiece.PieceType] = []
-
-# UI Riwayat Langkah (Pojok Kanan Atas)
-var history_scroll: ScrollContainer
-var history_list_label: RichTextLabel
-var move_pairs: Array[String] = []
-var pending_gold_move: String = ""
-
-const PIECE_VALUES := {
-	ChessPiece.PieceType.PAWN: 1,
-	ChessPiece.PieceType.KNIGHT: 3,
-	ChessPiece.PieceType.BISHOP: 3,
-	ChessPiece.PieceType.ROOK: 5,
-	ChessPiece.PieceType.QUEEN: 9,
-	ChessPiece.PieceType.KING: 0
-}
-
-const PIECE_ICONS := {
-	ChessPiece.PieceType.PAWN: "♟",
-	ChessPiece.PieceType.KNIGHT: "♞",
-	ChessPiece.PieceType.BISHOP: "♝",
-	ChessPiece.PieceType.ROOK: "♜",
-	ChessPiece.PieceType.QUEEN: "♛",
-	ChessPiece.PieceType.KING: "♚"
-}
-
-var auto_flip_enabled: bool = true
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	
-	_build_top_left_header()
-	_build_top_right_history()
-	_build_bottom_left_captured_tray()
-	_build_bottom_right_controls()
-	_build_capture_replay()
-	_build_game_over_modal()
-	_build_promotion_modal()
-
-func _create_nusantara_panel_style(border_color: Color = Color("#756041")) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("#15191def")
-	style.border_color = border_color
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(6)
-	style.content_margin_left = 10
-	style.content_margin_right = 10
-	style.content_margin_top = 8
-	style.content_margin_bottom = 8
-	return style
-
-func _create_button_style(is_hover: bool = false) -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.22, 0.16, 0.10, 0.95) if is_hover else Color(0.11, 0.08, 0.06, 0.90)
-	style.border_color = Color(0.95, 0.78, 0.35) if is_hover else Color(0.72, 0.54, 0.22)
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(4)
-	style.content_margin_left = 12
-	style.content_margin_right = 12
-	style.content_margin_top = 5
-	style.content_margin_bottom = 5
-	return style
-
-# 1. Header Judul & Indikator Giliran (Pojok Kiri Atas)
-func _build_top_left_header() -> void:
-	var panel := PanelContainer.new()
-	panel.position = Vector2(18, 18)
-	panel.add_theme_stylebox_override("panel", _create_nusantara_panel_style())
-	add_child(panel)
-	
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	panel.add_child(vbox)
-	
-	var title := Label.new()
-	title.text = "Nusantara Chess"
-	title.add_theme_font_size_override("font_size", 18)
-	title.add_theme_color_override("font_color", Color(0.96, 0.84, 0.52))
-	vbox.add_child(title)
-	
-	var sep := HSeparator.new()
-	sep.modulate = Color(0.76, 0.58, 0.24, 0.6)
-	vbox.add_child(sep)
-	
-	turn_label = Label.new()
-	turn_label.text = "GILIRAN: FAKSI EMAS"
-	turn_label.add_theme_font_size_override("font_size", 14)
-	turn_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
-	vbox.add_child(turn_label)
-	role_label = Label.new()
-	role_label.hide()
-	role_label.add_theme_font_size_override("font_size", 13)
-	role_label.add_theme_color_override("font_color", Color("#f0ddba"))
-	vbox.add_child(role_label)
-
-# 2. Panel Riwayat Langkah (Pojok Kanan Atas)
-func _build_top_right_history() -> void:
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-	margin.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	margin.add_theme_constant_override("margin_top", 18)
-	margin.add_theme_constant_override("margin_right", 18)
-	add_child(margin)
-	
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(174, 92)
-	panel.add_theme_stylebox_override("panel", _create_nusantara_panel_style())
-	margin.add_child(panel)
-	
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	panel.add_child(vbox)
-	
-	var heading := Label.new()
-	heading.text = "RIWAYAT LANGKAH"
-	heading.add_theme_font_size_override("font_size", 13)
-	heading.add_theme_color_override("font_color", Color(0.96, 0.84, 0.52))
-	vbox.add_child(heading)
-	
-	var sep := HSeparator.new()
-	sep.modulate = Color(0.76, 0.58, 0.24, 0.5)
-	vbox.add_child(sep)
-	
-	history_scroll = ScrollContainer.new()
-	history_scroll.custom_minimum_size = Vector2(150, 62)
-	history_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	vbox.add_child(history_scroll)
-	
-	history_list_label = RichTextLabel.new()
-	history_list_label.bbcode_enabled = true
-	history_list_label.fit_content = true
-	history_list_label.custom_minimum_size = Vector2(141, 0)
-	history_list_label.add_theme_font_size_override("normal_font_size", 13)
-	history_list_label.text = "[color=#9c8e78]Belum ada langkah...[/color]"
-	history_scroll.add_child(history_list_label)
-
-# 3. Tray Bidak yang Tertawan
-func _build_bottom_left_captured_tray() -> void:
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
-	margin.add_theme_constant_override("margin_left", 18)
-	margin.add_theme_constant_override("margin_top", 129)
-	add_child(margin)
-	
-	var panel := PanelContainer.new()
-	panel.custom_minimum_size = Vector2(170, 66)
-	panel.add_theme_stylebox_override("panel", _create_nusantara_panel_style())
-	margin.add_child(panel)
-	
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
-	panel.add_child(vbox)
-	
-	var heading := Label.new()
-	heading.text = "BIDAK TERTAWAN"
-	heading.add_theme_font_size_override("font_size", 12)
-	heading.add_theme_color_override("font_color", Color(0.96, 0.84, 0.52))
-	vbox.add_child(heading)
-	
-	gold_captured_label = Label.new()
-	gold_captured_label.text = "Emas: -"
-	gold_captured_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	gold_captured_label.add_theme_font_size_override("font_size", 15)
-	gold_captured_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.38))
-	vbox.add_child(gold_captured_label)
-	
-	obsidian_captured_label = Label.new()
-	obsidian_captured_label.text = "Obsidian: -"
-	obsidian_captured_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	obsidian_captured_label.add_theme_font_size_override("font_size", 15)
-	obsidian_captured_label.add_theme_color_override("font_color", Color(0.75, 0.84, 0.98))
-	vbox.add_child(obsidian_captured_label)
-
-# 4. Tombol Kontrol (Pojok Kanan Bawah)
-func _build_bottom_right_controls() -> void:
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	margin.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	margin.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	margin.add_theme_constant_override("margin_right", 18)
-	margin.add_theme_constant_override("margin_bottom", 18)
-	add_child(margin)
-	
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 5)
-	margin.add_child(vbox)
-	
-	var btn_auto_flip := _make_styled_button("KAMERA AUTO: ON")
-	btn_auto_flip.pressed.connect(func():
-		auto_flip_enabled = not auto_flip_enabled
-		btn_auto_flip.text = "KAMERA AUTO: ON" if auto_flip_enabled else "KAMERA AUTO: OFF"
-		auto_flip_toggled.emit(auto_flip_enabled)
-	)
-	vbox.add_child(btn_auto_flip)
-	
-	var btn_top := _make_styled_button("SUDUT ATAS")
-	btn_top.pressed.connect(func(): camera_top_view_requested.emit())
-	vbox.add_child(btn_top)
-	
-	var btn_camera := _make_styled_button("KAMERA (RESET)")
-	btn_camera.pressed.connect(func(): camera_reset_requested.emit())
-	vbox.add_child(btn_camera)
-	
-	var btn_restart := _make_styled_button("ULANGI LAGA")
-	btn_restart.pressed.connect(func(): restart_requested.emit())
-	vbox.add_child(btn_restart)
-	
-	var btn_forfeit := _make_styled_button("MENYERAH")
-	btn_forfeit.pressed.connect(func(): forfeit_requested.emit())
-	vbox.add_child(btn_forfeit)
-
-func _build_capture_replay() -> void:
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
-	margin.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	margin.grow_vertical = Control.GROW_DIRECTION_BOTH
-	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_theme_constant_override("margin_right", 18)
-	add_child(margin)
-	capture_replay = REPLAY.new()
-	capture_replay.add_theme_stylebox_override("panel", _create_nusantara_panel_style(Color("#c29353")))
-	margin.add_child(capture_replay)
+	for i in PIECE_NAMES.size():
+		var path := "res://assets/ui/art/piece-%d.png" % i
+		_icons.append(load(path) as Texture2D if ResourceLoader.exists(path) else null)
+	_build_status()
+	_build_info()
+	_build_controls()
+	_build_replay()
+	_build_modal()
+	resized.connect(_fit)
+	_fit()
 
 
-func show_capture_replay(attacker: ChessPiece.PieceType, defender: ChessPiece.PieceType, faction: ChessPiece.Faction) -> void:
-	capture_replay.play(attacker, defender, faction)
+func configure(solo: bool, human_faction: int, difficulty: int) -> void:
+	_close_modal(false)
+	_solo = solo
+	_human_faction = human_faction
+	_auto = not solo
+	_auto_flip.visible = not solo
+	_auto_flip.text = "Kamera otomatis: aktif"
+	_forfeit.disabled = false
+	_details_open = false
+	_context.text = "Lawan Bot · %s" % StockfishClient.PRESETS[difficulty].label if solo else "Dua Pemain Lokal"
+	_role.hide()
+	_check.hide()
+	_moves.clear()
+	_history.clear()
+	_captured = [[], []]
+	for faction in range(2):
+		_refresh_captures(faction)
+	_replay.reset()
+	update_turn(ChessPiece.Faction.GOLD)
+	_fit()
 
 
-func _make_styled_button(label_text: String) -> Button:
-	var btn := Button.new()
-	btn.text = label_text
-	btn.custom_minimum_size = Vector2(146, 29)
-	btn.add_theme_font_size_override("font_size", 12)
-	btn.add_theme_color_override("font_color", Color(0.95, 0.88, 0.72))
-	btn.add_theme_color_override("font_hover_color", Color(1.0, 0.95, 0.8))
-	btn.add_theme_stylebox_override("normal", _create_button_style(false))
-	btn.add_theme_stylebox_override("hover", _create_button_style(true))
-	btn.add_theme_stylebox_override("pressed", _create_button_style(true))
-	btn.pressed.connect(func(): AudioManager.play_ui_click())
-	return btn
+func update_turn(faction: ChessPiece.Faction, thinking: bool = false) -> void:
+	_status_art.texture = TakhtaTheme.faction_art(faction)
+	var name_text := TakhtaTheme.faction_name(faction)
+	_turn_text.text = "%s · Giliran" % name_text
+	if _solo:
+		_turn_text.text = "%s · %s" % [name_text, "Giliran Anda" if faction == _human_faction else ("Bot berpikir" if thinking else "Giliran bot")]
+	_turn_text.add_theme_color_override("font_color", TakhtaTheme.faction_color(faction))
+	_status.reset_size()
 
-# 5. Panel Pengumuman Pemenang (Tengah Layar)
-func _build_game_over_modal() -> void:
-	game_over_panel = PanelContainer.new()
-	game_over_panel.visible = false
-	game_over_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	game_over_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	game_over_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	game_over_panel.add_theme_stylebox_override("panel", _create_nusantara_panel_style(Color(1.0, 0.82, 0.3)))
-	add_child(game_over_panel)
-	
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 16)
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	game_over_panel.add_child(vbox)
-	
-	var heading := Label.new()
-	heading.text = "TAKHTA TELAH DIREBUT"
-	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	heading.add_theme_font_size_override("font_size", 24)
-	heading.add_theme_color_override("font_color", Color(0.96, 0.84, 0.52))
-	vbox.add_child(heading)
-	
-	winner_label = Label.new()
-	winner_label.text = "PEMENANG: FAKSI EMAS"
-	winner_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	winner_label.add_theme_font_size_override("font_size", 18)
-	winner_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
-	vbox.add_child(winner_label)
-	
-	var btn_play_again := _make_styled_button("MAIN LAGI")
-	btn_play_again.pressed.connect(func(): restart_requested.emit())
-	vbox.add_child(btn_play_again)
 
-# ==============================================================================
-# PEMBARUAN DATA DINAMIS HUD
-# ==============================================================================
+func set_check_warning(in_check: bool) -> void:
+	_check.visible = in_check
+	_status.reset_size()
+
+
 func show_selected_role(role: int) -> void:
-	role_label.visible = role >= 0
+	_role.visible = role >= 0
 	if role >= 0:
-		role_label.text = "%s  %s" % [PIECE_ICONS[role], MINIATURES.TITLES[role]]
+		var title: String = MINIATURES.SHORT_TITLES[role]
+		_role.text = PIECE_NAMES[role] if title == PIECE_NAMES[role] else "%s · %s" % [PIECE_NAMES[role], title]
+	_status.reset_size()
 
 
-func update_turn(faction: ChessPiece.Faction) -> void:
-	if faction == ChessPiece.Faction.GOLD:
-		turn_label.text = "GILIRAN: FAKSI EMAS"
-		turn_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.35))
-	else:
-		turn_label.text = "GILIRAN: FAKSI OBSIDIAN"
-		turn_label.add_theme_color_override("font_color", Color(0.72, 0.82, 0.96))
+func add_captured_piece(faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType) -> void:
+	_captured[faction].append(captured_type)
+	_refresh_captures(faction)
 
-func set_check_warning(is_in_check: bool) -> void:
-	if is_in_check:
-		turn_label.text += "  [⚠ RAJA TERANCAM SKAK!]"
-		turn_label.add_theme_color_override("font_color", Color(1.0, 0.32, 0.25))
 
-func add_captured_piece(capturer_faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType) -> void:
-	if capturer_faction == ChessPiece.Faction.GOLD:
-		gold_captures.append(captured_type)
-		gold_captures.sort_custom(func(a, b): return PIECE_VALUES[a] > PIECE_VALUES[b])
-	else:
-		obsidian_captures.append(captured_type)
-		obsidian_captures.sort_custom(func(a, b): return PIECE_VALUES[a] > PIECE_VALUES[b])
-	
-	_refresh_captured_display()
+func _refresh_captures(faction: int) -> void:
+	var row := _captures[faction]
+	for child in row.get_children():
+		row.remove_child(child)
+		child.queue_free()
+	if _captured[faction].is_empty():
+		row.add_child(TakhtaTheme.label("—", 17, TakhtaTheme.MUTED))
+		return
+	for i in range(5):
+		var count: int = _captured[faction].count(i)
+		if count > 0:
+			var token := HBoxContainer.new()
+			token.add_theme_constant_override("separation", 1)
+			row.add_child(token)
+			if _icons[i]:
+				token.add_child(TakhtaTheme.picture(_icons[i], Vector2(18, 23)))
+			else:
+				token.add_child(TakhtaTheme.label(PIECE_ICONS[i], 16, TakhtaTheme.faction_color(faction)))
+			if count > 1:
+				token.add_child(TakhtaTheme.label(str(count), 15))
 
-func _refresh_captured_display() -> void:
-	var gold_score := 0
-	var gold_icons := ""
-	for t in gold_captures:
-		gold_score += PIECE_VALUES[t]
-		gold_icons += PIECE_ICONS[t] + " "
-	
-	var obs_score := 0
-	var obs_icons := ""
-	for t in obsidian_captures:
-		obs_score += PIECE_VALUES[t]
-		obs_icons += PIECE_ICONS[t] + " "
-	
-	var diff := gold_score - obs_score
-	var gold_adv := " (+%d)" % diff if diff > 0 else ""
-	var obs_adv := " (+%d)" % (-diff) if diff < 0 else ""
-	
-	gold_captured_label.text = "Emas: %s%s" % [gold_icons if gold_icons != "" else "-", gold_adv]
-	obsidian_captured_label.text = "Obsidian: %s%s" % [obs_icons if obs_icons != "" else "-", obs_adv]
 
 func add_move_record(faction: ChessPiece.Faction, notation: String) -> void:
 	if faction == ChessPiece.Faction.GOLD:
-		pending_gold_move = notation
-		var turn_num := move_pairs.size() + 1
-		var preview := "[color=#d4af37]%d.[/color] [color=#ffe082]%s[/color]" % [turn_num, pending_gold_move]
-		var lines := move_pairs.duplicate()
-		lines.append(preview)
-		history_list_label.text = "\n".join(lines)
-	else:
-		var turn_num := move_pairs.size() + 1
-		var full_line := "[color=#d4af37]%d.[/color] [color=#ffe082]%s[/color]   [color=#b8cce8]%s[/color]" % [turn_num, pending_gold_move, notation]
-		move_pairs.append(full_line)
-		pending_gold_move = ""
-		history_list_label.text = "\n".join(move_pairs)
-	
-	await get_tree().process_frame
-	history_scroll.scroll_vertical = int(history_scroll.get_v_scroll_bar().max_value)
+		_moves.append("[color=#e3bb72]%d.  %s[/color]" % [_moves.size() + 1, notation])
+	elif not _moves.is_empty():
+		_moves[_moves.size() - 1] += "    [color=#afc5d6]%s[/color]" % notation
+	_history.text = "\n".join(_moves)
 
-func show_winner(winner_faction: ChessPiece.Faction, reason: String = "SKAKMAT!") -> void:
-	promotion_panel.hide()
-	if winner_faction == ChessPiece.Faction.GOLD:
-		winner_label.text = "%s\nPEMENANG: FAKSI EMAS" % reason
-	else:
-		winner_label.text = "%s\nPEMENANG: FAKSI OBSIDIAN" % reason
-	game_over_panel.visible = true
 
-# 6. Modal Pilihan Promosi Pion (Tengah Layar)
-func _build_promotion_modal() -> void:
-	promotion_panel = PanelContainer.new()
-	promotion_panel.visible = false
-	promotion_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
-	promotion_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	promotion_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	promotion_panel.add_theme_stylebox_override("panel", _create_nusantara_panel_style(Color(1.0, 0.82, 0.3)))
-	add_child(promotion_panel)
-	
-	var vbox := VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 12)
-	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	promotion_panel.add_child(vbox)
-	
-	var heading := Label.new()
-	heading.text = "KENAIKAN PANGKAT PRAJURIT"
-	heading.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	heading.add_theme_font_size_override("font_size", 20)
-	heading.add_theme_color_override("font_color", Color(0.96, 0.84, 0.52))
-	vbox.add_child(heading)
-	
-	var sub := Label.new()
-	sub.text = "Pilih gelar baru untuk pion yang menembus garis musuh:"
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.add_theme_font_size_override("font_size", 13)
-	sub.add_theme_color_override("font_color", Color(0.9, 0.85, 0.75))
-	vbox.add_child(sub)
-	
-	var hbox := HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 10)
-	hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	vbox.add_child(hbox)
-	
-	var options := [
-		{"label": "♕ RATU", "type": ChessPiece.PieceType.QUEEN},
-		{"label": "♖ MAHAPATIH", "type": ChessPiece.PieceType.ROOK},
-		{"label": "♗ RESI", "type": ChessPiece.PieceType.BISHOP},
-		{"label": "♘ KAVALERI", "type": ChessPiece.PieceType.KNIGHT}
-	]
-	
-	for opt in options:
-		var btn := _make_styled_button(opt["label"])
-		btn.custom_minimum_size = Vector2(130, 46)
-		var p_type: ChessPiece.PieceType = opt["type"]
-		btn.pressed.connect(func():
-			promotion_panel.visible = false
-			promotion_piece_selected.emit(p_type)
-		)
-		hbox.add_child(btn)
+func show_capture_replay(attacker: ChessPiece.PieceType, defender: ChessPiece.PieceType, faction: ChessPiece.Faction) -> void:
+	_replay.play(attacker, defender, faction)
+
 
 func show_promotion_choices() -> void:
-	promotion_panel.visible = true
+	_open_modal("Promosi Pion", "Pilih bidak pengganti.", WARRIOR)
+	var items: Array[Control] = []
+	for role in [ChessPiece.PieceType.QUEEN, ChessPiece.PieceType.ROOK, ChessPiece.PieceType.BISHOP, ChessPiece.PieceType.KNIGHT]:
+		var chosen: ChessPiece.PieceType = role
+		var button := _action(PIECE_NAMES[role], func():
+			_close_modal()
+			promotion_piece_selected.emit(chosen)
+		)
+		button.icon = _icons[role]
+		button.add_theme_constant_override("icon_max_width", 26)
+		items.append(button)
+	_focus_modal(items)
+
+
+func show_result(winner: int, reason: String) -> void:
+	_forfeit.disabled = true
+	var title := "Laga Berakhir Seri" if winner == ChessBoard.DRAW else "%s Menang" % TakhtaTheme.faction_name(winner)
+	var art := DUEL if winner == ChessBoard.DRAW else TakhtaTheme.faction_art(winner)
+	_open_modal(title, reason, art)
+	_focus_modal([
+		_action("Ulangi Laga", func(): restart_requested.emit(), true),
+		_action("Kembali ke Menu", func(): menu_requested.emit()),
+	])
+
+
+func show_bot_error(message: String) -> void:
+	_open_modal("Bot Tidak Merespons", message)
+	_focus_modal([
+		_action("Coba Lagi", _retry, true),
+		_action("Kembali ke Menu", func(): menu_requested.emit()),
+	])
+
+
+func _retry() -> void:
+	_close_modal()
+	retry_requested.emit()
+
+
+func _build_status() -> void:
+	_status = PanelContainer.new()
+	add_child(_status)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 9)
+	_status.add_child(row)
+	_status_art = TakhtaTheme.picture(TakhtaTheme.GOLD_ART, Vector2(51, 55))
+	row.add_child(_status_art)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 1)
+	row.add_child(stack)
+	_context = TakhtaTheme.label("", 17, TakhtaTheme.MUTED)
+	_turn_text = TakhtaTheme.label("", 23, TakhtaTheme.GOLD, true)
+	_check = TakhtaTheme.label("!  Raja sedang diskak", 17, TakhtaTheme.ALERT)
+	_role = TakhtaTheme.label("", 15, TakhtaTheme.MUTED)
+	for item in [_context, _turn_text, _check, _role]:
+		stack.add_child(item)
+
+
+func _build_info() -> void:
+	_info = PanelContainer.new()
+	add_child(_info)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 5)
+	_info.add_child(list)
+	list.add_child(TakhtaTheme.label("Riwayat Langkah", 19, TakhtaTheme.IVORY, true))
+	_history = RichTextLabel.new()
+	_history.bbcode_enabled = true
+	_history.scroll_following = true
+	_history.custom_minimum_size.y = 110
+	_history.add_theme_font_size_override("normal_font_size", 17)
+	list.add_child(_history)
+	list.add_child(HSeparator.new())
+	list.add_child(TakhtaTheme.label("Bidak Tawanan", 19, TakhtaTheme.IVORY, true))
+	for faction in range(2):
+		var line := HBoxContainer.new()
+		list.add_child(line)
+		var caption := TakhtaTheme.label(TakhtaTheme.faction_name(faction), 16, TakhtaTheme.faction_color(faction))
+		caption.custom_minimum_size.x = 74
+		line.add_child(caption)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 3)
+		line.add_child(row)
+		_captures.append(row)
+
+
+func _build_controls() -> void:
+	_controls = HBoxContainer.new()
+	_controls.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_controls.add_theme_constant_override("separation", 6)
+	add_child(_controls)
+	_details = _control("Catatan Laga", func():
+		_details_open = not _details_open
+		_fit()
+	)
+	_control("Sudut Atas", func(): camera_top_view_requested.emit())
+	_control("Reset Kamera", func(): camera_reset_requested.emit())
+	_auto_flip = _control("Kamera otomatis: aktif", func():
+		_auto = not _auto
+		_auto_flip.text = "Kamera otomatis: aktif" if _auto else "Kamera otomatis: mati"
+		auto_flip_toggled.emit(_auto)
+	)
+	_control("Ulangi", _confirm_restart)
+	_forfeit = _control("Menyerah", _confirm_forfeit)
+	_control("Menu", _confirm_menu)
+
+
+func _control(title: String, callback: Callable) -> Button:
+	var button := TakhtaTheme.button(title, callback)
+	button.add_theme_font_size_override("font_size", 17)
+	_controls.add_child(button)
+	_control_buttons.append(button)
+	return button
+
+
+func _build_replay() -> void:
+	_replay_host = MarginContainer.new()
+	_replay_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_replay_host)
+	_replay = REPLAY.new()
+	_replay_host.add_child(_replay)
+
+
+func _build_modal() -> void:
+	_modal = ColorRect.new()
+	_modal.color = Color("#101213db")
+	_modal.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_modal)
+	_modal.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var center := CenterContainer.new()
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_modal.add_child(center)
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size.x = 390
+	center.add_child(panel)
+	panel.add_theme_stylebox_override("panel", TakhtaTheme.panel(TakhtaTheme.SURFACE, TakhtaTheme.BRASS, 24))
+	_modal_body = VBoxContainer.new()
+	_modal_body.add_theme_constant_override("separation", 12)
+	panel.add_child(_modal_body)
+	_modal.hide()
+
+
+func _open_modal(title: String, message: String, art: Texture2D = null) -> void:
+	if not _modal.visible:
+		_previous_focus = get_viewport().gui_get_focus_owner()
+	for control in _control_buttons:
+		control.focus_mode = Control.FOCUS_NONE
+	for child in _modal_body.get_children():
+		_modal_body.remove_child(child)
+		child.queue_free()
+	if art:
+		_modal_body.add_child(TakhtaTheme.picture(art, Vector2(90, 80)))
+	var headline := TakhtaTheme.label(title, 34, TakhtaTheme.IVORY, true)
+	headline.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_modal_body.add_child(headline)
+	var detail := TakhtaTheme.label(message, 19, TakhtaTheme.MUTED)
+	detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_modal_body.add_child(detail)
+	_modal_buttons = HFlowContainer.new()
+	_modal_buttons.alignment = FlowContainer.ALIGNMENT_CENTER
+	_modal_buttons.add_theme_constant_override("h_separation", 8)
+	_modal_buttons.add_theme_constant_override("v_separation", 8)
+	_modal_body.add_child(_modal_buttons)
+	_modal.show()
+
+
+func _focus_modal(buttons: Array[Control]) -> void:
+	TakhtaTheme.link_focus(buttons)
+	buttons[0].grab_focus()
+
+
+func _action(title: String, callback: Callable, primary: bool = false) -> Button:
+	var button := TakhtaTheme.button(title, callback, primary)
+	_modal_buttons.add_child(button)
+	return button
+
+
+func _close_modal(restore_focus: bool = true) -> void:
+	_modal.hide()
+	for control in _control_buttons:
+		control.focus_mode = Control.FOCUS_ALL
+	if restore_focus and is_instance_valid(_previous_focus) and _previous_focus.is_visible_in_tree():
+		_previous_focus.grab_focus()
+	_previous_focus = null
+
+
+func _confirm_forfeit() -> void:
+	_open_modal("Menyerah?", "Lawan akan memenangkan laga ini.")
+	_focus_modal([
+		_action("Lanjut Bermain", _close_modal, true),
+		_action("Menyerah", func(): forfeit_requested.emit()),
+	])
+
+
+func _confirm_restart() -> void:
+	_open_modal("Ulangi Laga?", "Posisi sekarang akan dikosongkan.")
+	_focus_modal([
+		_action("Lanjut Bermain", _close_modal, true),
+		_action("Ulangi", func(): restart_requested.emit()),
+	])
+
+
+func _confirm_menu() -> void:
+	_open_modal("Kembali ke Menu?", "Laga sekarang akan berakhir.")
+	_focus_modal([
+		_action("Lanjut Bermain", _close_modal, true),
+		_action("Kembali ke Menu", func(): menu_requested.emit()),
+	])
+
+
+func is_compact_layout() -> bool:
+	return _compact
+
+
+func _fit() -> void:
+	var compact := size.x / maxf(1.0, size.y) < 1.53 or get_window().size.x < 1000
+	if _compact != compact:
+		_compact = compact
+		layout_changed.emit(compact)
+	_status.position = Vector2(20, 18)
+	_info.visible = not compact or _details_open
+	_details.visible = compact
+	_details.text = "Tutup Catatan" if _details_open else "Catatan Laga"
+	_info.position = Vector2(size.x - 254, 20)
+	_info.size.x = 234
+	_controls.position = Vector2((size.x - _controls.get_combined_minimum_size().x) * 0.5, size.y - 59)
+	_controls.size = _controls.get_combined_minimum_size()
+	_replay_host.position = Vector2(size.x - 254, 70 if compact and not _details_open else 318)
+	_replay_host.size.x = 234

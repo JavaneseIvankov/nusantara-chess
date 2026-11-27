@@ -19,11 +19,17 @@ var is_orbiting: bool = false
 var is_showcase_mode: bool = true
 var is_obsidian_side: bool = false
 var is_top_view: bool = false
+var compact_layout := false
 
 func _ready() -> void:
 	rotation.y = target_yaw
 	pitch_pivot.rotation.x = target_pitch
 	camera.position.z = target_zoom
+
+func _input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_RIGHT and not event.pressed:
+		is_orbiting = false
+
 
 func _unhandled_input(event: InputEvent) -> void:
 	if is_showcase_mode:
@@ -56,10 +62,19 @@ func _process(delta: float) -> void:
 	var aspect := view_size.x / maxf(view_size.y, 1.0)
 	var fit := maxf(1.0, 1.55 / aspect)
 	camera.position.z = lerpf(camera.position.z, target_zoom * fit, blend)
-	var sidebar_offset := 0.92 if aspect >= 1.45 else 0.48
-	var menu_offset := -2.26 if aspect >= 1.55 else 0.0
+	var sidebar_offset := 0.10 if compact_layout else 1.31
+	var menu_offset := -2.47 if aspect >= 1.53 else -1.85
 	camera.h_offset = lerpf(camera.h_offset, menu_offset if is_showcase_mode else sidebar_offset, blend)
-	camera.v_offset = lerpf(camera.v_offset, 0.12 if is_showcase_mode else -0.12, blend)
+	camera.v_offset = lerpf(camera.v_offset, 0.12 if is_showcase_mode else -0.20, blend)
+
+func set_compact_layout(compact: bool) -> void:
+	compact_layout = compact
+
+
+func start_showcase() -> void:
+	is_showcase_mode = true
+	is_orbiting = false
+
 
 func start_gameplay_camera() -> void:
 	is_showcase_mode = false
