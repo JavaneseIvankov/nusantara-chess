@@ -37,6 +37,8 @@ func _ready() -> void:
 	game_hud.camera_top_view_requested.connect(_on_camera_top_view)
 	game_hud.promotion_piece_selected.connect(_on_promotion_piece_selected)
 	game_hud.restart_requested.connect(_on_restart_game)
+	game_hud.menu_requested.connect(_on_restart_game)
+	game_hud.layout_changed.connect(camera_rig.set_compact_layout)
 	game_hud.forfeit_requested.connect(_on_forfeit_game)
 
 func _on_start_game(_solo: bool, _faction: int, _difficulty: int) -> void:
@@ -45,6 +47,8 @@ func _on_start_game(_solo: bool, _faction: int, _difficulty: int) -> void:
 		camera_rig.start_gameplay_camera()
 	
 	game_hud.visible = true
+	game_hud.configure(false, ChessPiece.Faction.GOLD, 0)
+	camera_rig.set_compact_layout(game_hud.is_compact_layout())
 	var hud_tween := create_tween()
 	hud_tween.tween_property(game_hud, "modulate:a", 1.0, 0.4)
 
@@ -74,7 +78,7 @@ func _on_promotion_piece_selected(chosen_type: ChessPiece.PieceType) -> void:
 
 func _on_game_over(winner_faction: int, reason: String) -> void:
 	AudioManager.play_game_over()
-	game_hud.show_winner(winner_faction, reason)
+	game_hud.show_result(winner_faction, reason)
 
 func _on_camera_reset() -> void:
 	if camera_rig.has_method("reset_camera"):
