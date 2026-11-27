@@ -471,6 +471,9 @@ func _get_legal_moves(piece: ChessPiece) -> Array[Vector2i]:
 	var legal_moves: Array[Vector2i] = []
 	
 	for target_pos in pseudo_moves:
+		var target: ChessPiece = board_state.get(target_pos)
+		if target and target.type == ChessPiece.PieceType.KING:
+			continue
 		if _is_move_safe_for_king(piece, target_pos):
 			legal_moves.append(target_pos)
 	
@@ -484,6 +487,12 @@ func _is_move_safe_for_king(piece: ChessPiece, target_pos: Vector2i) -> bool:
 	if piece.type == ChessPiece.PieceType.PAWN and target_pos == en_passant_target and not sim_state.has(target_pos):
 		sim_state.erase(Vector2i(target_pos.x, piece.grid_pos.y))
 	
+	if piece.type == ChessPiece.PieceType.KING and absi(target_pos.x - piece.grid_pos.x) == 2:
+		var kingside := target_pos.x > piece.grid_pos.x
+		var rook_from := Vector2i(7 if kingside else 0, target_pos.y)
+		var rook_to := Vector2i(5 if kingside else 3, target_pos.y)
+		sim_state[rook_to] = sim_state[rook_from]
+		sim_state.erase(rook_from)
 	sim_state[target_pos] = piece
 	return not _is_king_in_check(piece.faction, sim_state, piece, target_pos)
 
@@ -574,18 +583,19 @@ func _get_pseudo_legal_moves(piece: ChessPiece, pos: Vector2i, state: Dictionary
 						moves.append(target_pos)
 			
 			# Rokade (Kingside & Queenside)
-			if include_castling and not piece.has_moved and not _is_king_in_check(piece.faction, state):
+			var home_row := 7 if piece.faction == ChessPiece.Faction.GOLD else 0
+			if include_castling and pos == Vector2i(4, home_row) and not piece.has_moved and not _is_king_in_check(piece.faction, state):
 				var row: int = pos.y
 				# Kingside (Benteng kolom 7)
 				var k_rook: ChessPiece = state.get(Vector2i(7, row), null)
-				if k_rook != null and k_rook.type == ChessPiece.PieceType.ROOK and not k_rook.has_moved:
+				if k_rook != null and k_rook.faction == piece.faction and k_rook.type == ChessPiece.PieceType.ROOK and not k_rook.has_moved:
 					if not state.has(Vector2i(5, row)) and not state.has(Vector2i(6, row)):
 						if _is_move_safe_for_king(piece, Vector2i(5, row)) and _is_move_safe_for_king(piece, Vector2i(6, row)):
 							moves.append(Vector2i(6, row))
 				
 				# Queenside (Benteng kolom 0)
 				var q_rook: ChessPiece = state.get(Vector2i(0, row), null)
-				if q_rook != null and q_rook.type == ChessPiece.PieceType.ROOK and not q_rook.has_moved:
+				if q_rook != null and q_rook.faction == piece.faction and q_rook.type == ChessPiece.PieceType.ROOK and not q_rook.has_moved:
 					if not state.has(Vector2i(1, row)) and not state.has(Vector2i(2, row)) and not state.has(Vector2i(3, row)):
 						if _is_move_safe_for_king(piece, Vector2i(3, row)) and _is_move_safe_for_king(piece, Vector2i(2, row)):
 							moves.append(Vector2i(2, row))
