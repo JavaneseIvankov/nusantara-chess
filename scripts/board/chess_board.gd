@@ -1,14 +1,14 @@
 class_name ChessBoard
 extends Node3D
 
-signal turn_changed(new_faction: ChessPiece.Faction)
+signal turn_ready(new_faction: ChessPiece.Faction)
 signal check_state_changed(is_in_check: bool)
 signal piece_captured(capturer_faction: ChessPiece.Faction, captured_type: ChessPiece.PieceType)
 signal capture_replay_requested(attacker: ChessPiece.PieceType, defender: ChessPiece.PieceType, faction: ChessPiece.Faction)
 signal move_recorded(faction: ChessPiece.Faction, notation: String)
 signal selected_role_changed(role: int)
 signal promotion_required
-signal game_over(winner_faction: ChessPiece.Faction, reason: String)
+signal game_over(winner_faction: int, reason: String)
 
 @export var tile_size: float = 1.0
 @export var tile_height: float = 0.2
@@ -471,7 +471,6 @@ func _grid_to_algebraic(pos: Vector2i) -> String:
 
 func _switch_turn() -> void:
 	current_turn = ChessPiece.Faction.OBSIDIAN if current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
-	turn_changed.emit(current_turn)
 	
 	var in_check: bool = _is_king_in_check(current_turn, board_state)
 	
@@ -493,15 +492,22 @@ func _switch_turn() -> void:
 	var has_any_legal_move: bool = _faction_has_legal_moves(current_turn)
 	
 	if not has_any_legal_move:
-		is_game_over = true
-		var winner := ChessPiece.Faction.OBSIDIAN if current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
-		if in_check:
-			game_over.emit(winner, "SKAKMAT!")
-		else:
-			game_over.emit(winner, "SERI (STALEMATE)!")
+		check_state_changed.emit(in_check)
+		end_match(1 - current_turn if in_check else DRAW, "Skakmat" if in_check else "Seri · Pat")
 		return
-	
+
 	check_state_changed.emit(in_check)
+	turn_ready.emit(current_turn)
+
+
+func end_match(winner: int, reason: String) -> void:
+	if is_game_over:
+		return
+	is_game_over = true
+	awaiting_promotion = false
+	_clear_hover()
+	_clear_selection()
+	game_over.emit(winner, reason)
 
 func _find_king_pos(faction: ChessPiece.Faction, state: Dictionary) -> Vector2i:
 	for pos in state.keys():

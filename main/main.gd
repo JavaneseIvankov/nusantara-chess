@@ -17,7 +17,7 @@ func _ready() -> void:
 	main_menu.quit_game_requested.connect(_on_quit_game)
 	
 	# Sinyal Papan Catur
-	chess_board.turn_changed.connect(_on_turn_changed)
+	chess_board.turn_ready.connect(_on_turn_changed)
 	chess_board.check_state_changed.connect(_on_check_state_changed)
 	chess_board.piece_captured.connect(game_hud.add_captured_piece)
 	chess_board.capture_replay_requested.connect(game_hud.show_capture_replay)
@@ -67,7 +67,7 @@ func _on_promotion_required() -> void:
 func _on_promotion_piece_selected(chosen_type: ChessPiece.PieceType) -> void:
 	chess_board.complete_pawn_promotion(chosen_type)
 
-func _on_game_over(winner_faction: ChessPiece.Faction, reason: String) -> void:
+func _on_game_over(winner_faction: int, reason: String) -> void:
 	AudioManager.play_game_over()
 	game_hud.show_winner(winner_faction, reason)
 
@@ -83,9 +83,4 @@ func _on_restart_game() -> void:
 	get_tree().reload_current_scene()
 
 func _on_forfeit_game() -> void:
-	if chess_board.is_game_over:
-		return
-	chess_board.is_game_over = true
-	var winner := ChessPiece.Faction.OBSIDIAN if chess_board.current_turn == ChessPiece.Faction.GOLD else ChessPiece.Faction.GOLD
-	AudioManager.play_game_over()
-	game_hud.show_winner(winner, "LAWAN MENYERAH!")
+	chess_board.end_match(1 - chess_board.current_turn, "LAWAN MENYERAH!")

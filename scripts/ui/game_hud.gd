@@ -368,9 +368,11 @@ func add_move_record(faction: ChessPiece.Faction, notation: String) -> void:
 	await get_tree().process_frame
 	history_scroll.scroll_vertical = int(history_scroll.get_v_scroll_bar().max_value)
 
-func show_winner(winner_faction: ChessPiece.Faction, reason: String = "SKAKMAT!") -> void:
+func show_winner(winner_faction: int, reason: String = "SKAKMAT!") -> void:
 	promotion_panel.hide()
-	if winner_faction == ChessPiece.Faction.GOLD:
+	if winner_faction == ChessBoard.DRAW:
+		winner_label.text = reason
+	elif winner_faction == ChessPiece.Faction.GOLD:
 		winner_label.text = "%s\nPEMENANG: FAKSI EMAS" % reason
 	else:
 		winner_label.text = "%s\nPEMENANG: FAKSI OBSIDIAN" % reason
